@@ -14,7 +14,16 @@ type VerdictStatus = "valid" | "review" | "irrelevant" | "error" | "invalid" | n
 interface Checkpoint { id: string; label: string; status: CpStatus; }
 interface DetectionData { value: string | null; source: string; confidence: number; manufacturer?: string; checksum?: boolean; state?: string; is_valid?: boolean; rejection_reason?: string | null; }
 interface SingleResult { verdict: VerdictStatus; status: string; statusMessage: string; chassis: DetectionData; registration: DetectionData; pagesScanned: number; ocrItemsFound: number; error?: string; }
-interface BatchRow { index: number; fileName: string; fileSize: number; status: string; statusMessage: string; chassis: string | null; chassisSource?: string; chassisConfidence: number; chassisManufacturer?: string; chassisChecksum?: boolean; chassisIsValid?: boolean; chassisRejectionReason?: string | null; registration: string | null; regState?: string; regSource?: string; regConfidence: number; pagesScanned: number; isVehicle: boolean; }
+interface BatchRow {
+    index: number; fileName: string; fileSize: number; status: string; statusMessage: string; chassis: string | null; chassisSource?: string; chassisConfidence: number; chassisManufacturer?: string; chassisChecksum?: boolean; chassisIsValid?: boolean; chassisRejectionReason?: string | null; registration: string | null; regState?: string; regSource?: string; regConfidence: number; pagesScanned: number; isVehicle: boolean;
+    qrResult?: {
+        found: boolean;
+        data: string | null;
+        isValid: boolean;
+        summary: string | null;
+        link: string | null;
+    };
+}
 
 const INIT_CP: Checkpoint[] = [
     { id: "document_loading", label: "DOCUMENT LOADING", status: "pending" },
@@ -25,6 +34,89 @@ const INIT_CP: Checkpoint[] = [
 ];
 
 const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+async function detectQRCode(file: File): Promise<{
+    found: boolean;
+    data: string | null;
+    isValid: boolean;
+    summary: string | null;
+    link: string | null;
+}> {
+    try {
+        const bitmap = await createImageBitmap(file);
+        const canvas = document.createElement('canvas');
+        canvas.width = bitmap.width;
+        canvas.height = bitmap.height;
+        const ctx = canvas.getContext('2d')!;
+        ctx.drawImage(bitmap, 0, 0);
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+        const jsQR = (await import('jsqr')).default;
+        const result = jsQR(imageData.data, imageData.width, imageData.height);
+
+        if (!result || !result.data || result.data.trim().length === 0) {
+            return {
+                found: false,
+                data: null,
+                isValid: false,
+                summary: null,
+                link: null
+            };
+        }
+
+        const raw = result.data.trim();
+        let isUrl = false;
+        let link: string | null = null;
+        let summary = '';
+
+        try {
+            const url = new URL(raw);
+            isUrl = true;
+            link = raw;
+
+            if (raw.includes('parivahan.gov.in')) {
+                summary = 'Government vehicle registration record — Parivahan (MoRTH)';
+            } else if (raw.includes('vahan.nic.in')) {
+                summary = 'VAHAN — National Vehicle Registry, Ministry of Road Transport';
+            } else if (raw.includes('digilocker.gov.in')) {
+                summary = 'DigiLocker — Digitally signed government document';
+            } else if (raw.includes('morth.nic.in')) {
+                summary = 'Ministry of Road Transport & Highways official record';
+            } else if (raw.includes('sarathi.parivahan.gov.in')) {
+                summary = 'Sarathi — Driving licence and vehicle portal';
+            } else {
+                summary = `URL: ${url.hostname}`;
+            }
+        } catch {
+            isUrl = false;
+            link = null;
+
+            if (/[A-Z]{2}[0-9]{1,2}[A-Z]{1,3}[0-9]{1,4}/.test(raw.toUpperCase())) {
+                summary = `QR contains vehicle data: ${raw.substring(0, 80)}`;
+            } else if (raw.length > 5) {
+                summary = `QR text: ${raw.substring(0, 80)}${raw.length > 80 ? '...' : ''}`;
+            } else {
+                summary = 'QR contains minimal or unrecognizable data';
+            }
+        }
+
+        return {
+            found: true,
+            data: raw,
+            isValid: true,
+            summary,
+            link
+        };
+    } catch (err) {
+        return {
+            found: false,
+            data: null,
+            isValid: false,
+            summary: null,
+            link: null
+        };
+    }
+}
 
 export function VehicleModule() {
     const [mode, setMode] = useState<AppMode>("single");
@@ -177,13 +269,25 @@ export function VehicleModule() {
 
             try {
                 const data = await analyzeDocument(file);
+
+                let qrResult: { found: boolean; data: string | null; isValid: boolean; summary: string | null; link: string | null; } = {
+                    found: false, data: null, isValid: false,
+                    summary: null, link: null
+                };
+                try {
+                    qrResult = await detectQRCode(file);
+                } catch {
+                    // QR detection failure must never crash the batch
+                }
+
                 const row: BatchRow = {
                     index: i, fileName: file.name, fileSize: file.size, status: data.status, statusMessage: data.statusMessage,
                     chassis: data.chassis?.value || null, chassisSource: data.chassis?.source, chassisConfidence: data.chassis?.confidence || 0,
                     chassisManufacturer: data.chassis?.manufacturer, chassisChecksum: data.chassis?.checksum, chassisIsValid: data.chassis?.is_valid,
                     chassisRejectionReason: data.chassis?.rejection_reason || null, registration: data.registration?.value || null,
                     regState: data.registration?.state, regSource: data.registration?.source, regConfidence: data.registration?.confidence || 0,
-                    pagesScanned: data.pagesScanned, isVehicle: data.isVehicleDocument
+                    pagesScanned: data.pagesScanned, isVehicle: data.isVehicleDocument,
+                    qrResult
                 };
                 results[i] = row;
                 updateBatchRow(i, row);
@@ -548,6 +652,21 @@ export function VehicleModule() {
                                                                             ℹ {row.statusMessage}
                                                                         </div>
                                                                     )}
+                                                                    {row.qrResult?.found && row.qrResult?.isValid && (
+                                                                        <div style={{ fontSize: 10, color: '#00c2cb', marginTop: 3, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                                                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                                <rect x="3" y="3" width="7" height="7" rx="1" />
+                                                                                <rect x="14" y="3" width="7" height="7" rx="1" />
+                                                                                <rect x="3" y="14" width="7" height="7" rx="1" />
+                                                                            </svg>
+                                                                            QR Valid — {row.qrResult.summary?.substring(0, 35)}{(row.qrResult.summary?.length ?? 0) > 35 ? '...' : ''}
+                                                                        </div>
+                                                                    )}
+                                                                    {row.qrResult?.found && !row.qrResult?.isValid && (
+                                                                        <div style={{ fontSize: 10, color: '#ff5252', marginTop: 3, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                                                            ⚠ QR Not Working (May be Invalid)
+                                                                        </div>
+                                                                    )}
                                                                 </div>
                                                             </div>
                                                         </td>
@@ -646,6 +765,46 @@ export function VehicleModule() {
                                                                                 <div style={{ fontSize: 11, color: '#4a5568', lineHeight: 1.6 }}>{row.status === 'skipped' ? 'Not in the format of Indian Vehicle Registration or Chassis Number.' : 'No valid Indian state registration format detected in this document.'}</div>
                                                                             </div>
                                                                         )}
+                                                                    </div>
+
+                                                                    {/* QR CODE SECTION — only show if QR was attempted */}
+                                                                    <div style={{ gridColumn: '1 / -1' }}>
+                                                                        <div style={{ background: '#0d1020', border: `1px solid ${row.qrResult?.found && row.qrResult?.isValid ? 'rgba(0,194,203,0.3)' : row.qrResult?.found && !row.qrResult?.isValid ? 'rgba(255,23,68,0.3)' : '#1e2535'}`, borderRadius: 10, padding: '14px 20px', display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+                                                                            <div style={{ flexShrink: 0, marginTop: 2, color: row.qrResult?.found && row.qrResult?.isValid ? '#00c2cb' : '#4a5568' }}>
+                                                                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                                                                                    <rect x="3" y="3" width="7" height="7" rx="1" />
+                                                                                    <rect x="14" y="3" width="7" height="7" rx="1" />
+                                                                                    <rect x="3" y="14" width="7" height="7" rx="1" />
+                                                                                    <rect x="5" y="5" width="3" height="3" fill="currentColor" stroke="none" />
+                                                                                    <rect x="16" y="5" width="3" height="3" fill="currentColor" stroke="none" />
+                                                                                    <rect x="5" y="16" width="3" height="3" fill="currentColor" stroke="none" />
+                                                                                    <path d="M14 14h2v2h-2zM18 14h3M18 18h3M14 18v3M14 21h3" />
+                                                                                </svg>
+                                                                            </div>
+                                                                            <div style={{ flex: 1 }}>
+                                                                                <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', marginBottom: 6, color: row.qrResult?.found && row.qrResult?.isValid ? '#00c2cb' : '#4a5568' }}>QR Code</div>
+                                                                                {row.qrResult?.found && row.qrResult?.isValid && (
+                                                                                    <div>
+                                                                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}><span style={{ fontSize: 10, fontWeight: 700, color: '#00c853', background: 'rgba(0,200,83,0.1)', border: '1px solid rgba(0,200,83,0.3)', borderRadius: 20, padding: '2px 10px' }}>✓ QR VALID</span></div>
+                                                                                        <div style={{ fontSize: 12, color: '#c8d0e0', lineHeight: 1.6 }}>{row.qrResult.summary}</div>
+                                                                                        {row.qrResult.link && (
+                                                                                            <a href={row.qrResult.link} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 8, fontSize: 11, color: '#00c2cb', textDecoration: 'none', fontWeight: 600, borderBottom: '1px solid rgba(0,194,203,0.3)', paddingBottom: 1 }}>
+                                                                                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>Open Source Link
+                                                                                            </a>
+                                                                                        )}
+                                                                                    </div>
+                                                                                )}
+                                                                                {row.qrResult?.found && !row.qrResult?.isValid && (
+                                                                                    <div>
+                                                                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}><span style={{ fontSize: 10, fontWeight: 700, color: '#ff1744', background: 'rgba(255,23,68,0.1)', border: '1px solid rgba(255,23,68,0.3)', borderRadius: 20, padding: '2px 10px' }}>✗ QR INVALID</span></div>
+                                                                                        <div style={{ fontSize: 12, color: '#ff5252', lineHeight: 1.6 }}>QR code detected but could not be decoded. May be damaged, low resolution, or intentionally fake.</div>
+                                                                                    </div>
+                                                                                )}
+                                                                                {!row.qrResult?.found && (
+                                                                                    <div style={{ fontSize: 12, color: '#4a5568' }}>No QR code detected in this document.</div>
+                                                                                )}
+                                                                            </div>
+                                                                        </div>
                                                                     </div>
                                                                     <div style={{ gridColumn: '1 / -1', fontSize: 10, color: '#2d3748', fontFamily: 'monospace', borderTop: '1px solid #1e2535', paddingTop: 10 }}>
                                                                         Extraction: PaddleOCR engine v2 · Size: {(row.fileSize / 1024).toFixed(1)} KB · Status: {row.statusMessage}
