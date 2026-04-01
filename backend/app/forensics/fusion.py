@@ -176,14 +176,16 @@ def calculate_weighted_result(score: float) -> dict:
     else:
         return {"label": "Likely Fraudulent", "decision": "tampered", "status": "FAILED"}
 
-def calculate_strict_scoring(anomalies: list, bank_brand: str = None, ocr_results: dict = None, metadata: dict = None, transactions: list = None, master_data: Optional[dict] = None) -> dict:
+def calculate_strict_scoring(anomalies: list, bank_brand: str = None, ocr_results: dict = None, metadata: dict = None, transactions: list = None, master_data: Optional[dict] = None, id_type: str = "UNKNOWN", checkpoints: list = None) -> dict:
     """
     Revised logic: If bank_brand is provided, use Weighted Checkpoint Model.
-    Otherwise, fallback to standard subtractive scoring (for non-bank docs).
+    If id_type is PAN, use the Checklist result.
+    Otherwise, fallback to standard subtractive scoring.
     """
     from app.forensics.bank_logic import BankLogic
     
-    if bank_brand and bank_brand != "UNKNOWN":
+    # 1. SPECIALIZED BANK LOGIC
+    if bank_brand and bank_brand != "UNKNOWN" and id_type == "BANK_STATEMENT":
         weighted_res = BankLogic.calculate_weighted_fraud_score(
             anomalies=anomalies,
             metadata=metadata or {},
@@ -195,25 +197,11 @@ def calculate_strict_scoring(anomalies: list, bank_brand: str = None, ocr_result
         )
         score = weighted_res["score"]
         
-        # Bank Override: Use the rule-based verdict directly
         if weighted_res.get("is_checkpoint_based"):
             verdict = weighted_res["verdict"] # REAL, SUSPICIOUS, or FAKE
             
-            # Map specific labels for UI display (as requested)
-            label_map = {
-                "REAL": "Real",
-                "GENUINE": "Real",
-                "SUSPICIOUS": "Suspicious",
-                "FAKE": "Fake"
-            }
-            
-            # Map to database 'final_decision' values (matching DocumentVerdict enum)
-            decision_map = {
-                "REAL": "REAL",
-                "GENUINE": "REAL",
-                "SUSPICIOUS": "SUSPICIOUS",
-                "FAKE": "FAKE"
-            }
+            label_map = {"REAL": "Real", "GENUINE": "Real", "SUSPICIOUS": "Suspicious", "FAKE": "Fake"}
+            decision_map = {"REAL": "REAL", "GENUINE": "REAL", "SUSPICIOUS": "SUSPICIOUS", "FAKE": "FAKE"}
             
             return {
                 "authenticity_score": score,
@@ -225,17 +213,49 @@ def calculate_strict_scoring(anomalies: list, bank_brand: str = None, ocr_result
                 "fail_count": weighted_res.get("fail_count", 0)
             }
 
-        res = calculate_weighted_result(score)
-        
+    # 2. SPECIALIZED IDENTITY LOGIC (PAN)
+    if id_type == "PAN" and checkpoints:
+        # Count FAILED checkpoints — pan_logic now emits both status_legacy="VALID"/"FAILED"
+        # and status="pass"/"fail". Use status_legacy for compat, fall back to status.
+        def _cp_failed(cp):
+            # v7.0 uses 'result' (PASS/FAIL)
+            res = cp.get("result", "")
+            if res:
+                return res == "FAIL"
+            # v6.0 uses 'signal' (PASS/FAIL)
+            sig = cp.get("signal", "")
+            if sig == "FAIL":
+                return True
+            # Legacy fallbacks
+            legacy = cp.get("status_legacy", "")
+            if legacy:
+                return legacy == "FAILED"
+            return cp.get("status", "") in ("fail", "FAILED")
+
+        fail_count  = sum(1 for cp in checkpoints if _cp_failed(cp))
+        total_score = sum(cp.get("score", 0) for cp in checkpoints)
+
+        if fail_count == 0:
+            verdict = "REAL"
+            label = "Real"
+        elif fail_count == 1:
+            verdict = "SUSPICIOUS"
+            label = "Suspicious"
+        else:
+            verdict = "FAKE"
+            label = "Fake"
+
         return {
-            "authenticity_score": score,
-            "confidence_label": res["label"],
-            "final_decision": res["decision"],
-            "is_valid": res["decision"] == "genuine",
-            "checkpoints": weighted_res.get("checkpoints", [])
+            "authenticity_score": total_score,
+            "confidence_label": label,
+            "final_decision": verdict,
+            "is_valid": verdict == "REAL",
+            "checkpoints": checkpoints,
+            "is_checkpoint_based": True,
+            "fail_count": fail_count
         }
 
-    # Standard Fallback (Non-Bank)
+    # 3. Standard Fallback (Non-Specialized)
     score = 100
     severity_map = {"CRITICAL": 30, "HIGH": 20, "MEDIUM": 10, "LOW": 5}
     for anom in anomalies:
@@ -289,7 +309,9 @@ def fuse_forensic_signals(
         ocr_results=ocr_results,
         metadata=metadata,
         transactions=extracted_data.get("transactions", []),
-        master_data=master_data
+        master_data=master_data,
+        id_type=id_type,
+        checkpoints=checkpoints
     )
     
     # MAP TO USER JSON FORMAT
@@ -307,21 +329,47 @@ def fuse_forensic_signals(
         "metadata_trust": 1.0 if not any(a.get("indicator") == "Metadata Tampering" for a in all_anomalies) else 0.0
     })
 
-    # UI Compatibility: Map anomalies to the 7-layer cards
-    ui_indicators = [
-        {"label": "Structural Integrity (Layer 2)", "status": "PASSED", "message": "No structural anomalies.", "category_id": "STRUCTURAL"},
-        {"label": "Logical Continuity (Layer 3)", "status": "PASSED", "message": "Math and continuity verified.", "category_id": "LOGICAL"},
-        {"label": "Format Standardisation (Layer 7)", "status": "PASSED", "message": "Standard bank format confirmed.", "category_id": "FORMAT"},
-        {"label": "Digital Forensics (Layers 1,4,5,6)", "status": "PASSED", "message": "Metadata and ELA confirmed.", "category_id": "FORENSIC"}
-    ]
+    # UI Compatibility: Build Fraud Indicators from checkpoints
+    # For PAN/identity docs, build from pipeline_results so the UI shows 7 identity rows.
+    # For bank statements, use the legacy 4-layer bank categories.
+    if id_type == "PAN" and checkpoints:
+        ui_indicators = []
+        for cp in checkpoints:
+            # v7.0 uses 'result' (PASS/FAIL) and 'signal' (GREEN/RED)
+            res = cp.get("result", "")
+            if res:
+                passed = res == "PASS"
+            else:
+                sig = cp.get("signal", "")
+                if sig in ("PASS", "GREEN"):
+                    passed = True
+                elif sig in ("FAIL", "RED"):
+                    passed = False
+                else:
+                    legacy = cp.get("status_legacy", "")
+                    new_s  = cp.get("status", "")
+                    passed = (legacy == "VALID") if legacy else (new_s in ("pass", "VALID"))
+            ui_indicators.append({
+                "label":       cp.get("checkpoint", cp.get("name", "Checkpoint")),
+                "status":      "PASSED" if passed else "FAILED",
+                "message":     cp.get("detail", cp.get("finding", "PASS" if passed else "FAIL")),
+                "category_id": cp.get("category", "TAMPER")
+            })
+    else:
+        ui_indicators = [
+            {"label": "Structural Integrity (Layer 2)", "status": "PASSED", "message": "No structural anomalies.", "category_id": "STRUCTURAL"},
+            {"label": "Logical Continuity (Layer 3)", "status": "PASSED", "message": "Math and continuity verified.", "category_id": "LOGICAL"},
+            {"label": "Format Standardisation (Layer 7)", "status": "PASSED", "message": "Standard bank format confirmed.", "category_id": "FORMAT"},
+            {"label": "Digital Forensics (Layers 1,4,5,6)", "status": "PASSED", "message": "Metadata and ELA confirmed.", "category_id": "FORENSIC"}
+        ]
 
-    for anom in all_anomalies:
-        cat = anom.get("category", "FORENSIC").upper()
-        for indicator in ui_indicators:
-            if indicator["category_id"] == cat:
-                indicator["status"] = "FAILED"
-                indicator["message"] = anom.get("message")
-                indicator["region"] = anom.get("region")
+        for anom in all_anomalies:
+            cat = anom.get("category", "FORENSIC").upper()
+            for indicator in ui_indicators:
+                if indicator["category_id"] == cat:
+                    indicator["status"] = "FAILED"
+                    indicator["message"] = anom.get("message")
+                    indicator["region"] = anom.get("region")
 
     final_block = {
       "authenticity_score": scoring_result["authenticity_score"],
@@ -339,16 +387,23 @@ def fuse_forensic_signals(
       "Reason List": [a["message"] for a in all_anomalies] if all_anomalies else ["No anomalies detected"],
       "Fraud Indicators": ui_indicators,
       "Extracted Text": {
-            "Document Name": extracted_data.get("bank_brand") or "Bank Statement",
+            "Document Name": extracted_data.get("bank_brand") or ("PAN Card" if id_type == "PAN" else "Document"),
             "Document Type": id_type,
-            "Account / ID": extracted_data.get("account_number") or extracted_data.get("id_number") or "Not detected",
-            "Customer Name": extracted_data.get("account_name") or extracted_data.get("name") or "Not detected",
-            "Account Description": extracted_data.get("account_description") or "Not detected",
-            "Period / Date": extracted_data.get("period") or extracted_data.get("date") or "Not detected",
+            "Account / ID": extracted_data.get("account_number") or extracted_data.get("id_number") or extracted_data.get("pan_number") or "Not detected",
+            "Customer Name": extracted_data.get("name") or extracted_data.get("account_name") or "Not detected",
+            "Father's Name": extracted_data.get("father_name") or "Not detected",
+            "Date of Birth": extracted_data.get("dob") or "Not detected",
+            "Gender": extracted_data.get("gender") or "Not detected",
+            "Photo Detected": extracted_data.get("photo_detected") or "Not detected",
+            "Signature Detected": extracted_data.get("signature_detected") or "Not detected",
+            "QR Detected": extracted_data.get("qr_detected") or "Not detected",
+            "Emblem Detected": extracted_data.get("emblem_detected") or "Not detected",
+            "Issuing Authority": extracted_data.get("issuing_authority") or "Not detected",
             "Full Text Preview": (extracted_data.get("text") or "Not detected")[:5000]
       },
       "BoundingBoxes": field_detections or [],
       "checkpoints": scoring_result.get("checkpoints", []),
+      "extracted_fields": extracted_data or {},
       "is_checkpoint_based": scoring_result.get("is_checkpoint_based", False)
     }
 

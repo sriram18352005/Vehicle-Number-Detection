@@ -6,7 +6,7 @@ from app.forensics.fusion import fuse_forensic_signals
 from app.forensics.aadhaar_logic import AadhaarVerification
 from app.forensics.pan_logic import PanVerification
 from app.forensics.academic_logic import AcademicVerification
-from app.forensics.pre_processing import preprocess_image
+from app.forensics.pre_processing import preprocess_image, preprocess_id_card
 from app.forensics.symbols import detect_symbols
 from app.forensics.metadata_extractor import extract_metadata
 from app.forensics.bank_logic import BankLogic, BankProfiler
@@ -125,8 +125,12 @@ async def async_process_document(document_id: int):
                 selected_bank=document.selected_bank or "AUTO"
             )
             
-            if not is_valid_doc:
-                print(f"PIPELINE: Blank/Irrelevant Document Detected: {blank_reason}")
+            # Step Id: 222
+            # Bypassing blank/relevance detection for Identity/AUTO mode
+            is_explicit_bank = document.selected_bank and document.selected_bank not in ["AUTO", "UNKNOWN"]
+            
+            if not is_valid_doc and is_explicit_bank:
+                print(f"PIPELINE: Blank/Irrelevant Document Detected for {document.selected_bank}: {blank_reason}")
                 async with async_session() as db:
                     result = await db.execute(select(Document).where(Document.id == document_id))
                     document = result.scalars().first()
@@ -168,6 +172,8 @@ async def async_process_document(document_id: int):
 
                         await db.commit()
                 return f"Processed document {document_id}: INVALID_DOCUMENT"
+            elif not is_valid_doc:
+                print(f"PIPELINE: Document is nearly empty/blank, but bypassing exit as it may be an ID card in AUTO mode.")
             
             # --- Universal Irrelevant Document Detection (Bank-Aware) ---
             selected_bank = getattr(document, 'selected_bank', 'AUTO') or 'AUTO'
@@ -214,7 +220,8 @@ async def async_process_document(document_id: int):
                     (len(dates_found) >= 2)
                 )
             
-            if not is_valid_statement:
+            # Skip this block for AUTO/None selected_bank to allow ID checks
+            if not is_valid_statement and is_explicit_bank:
                 print(f"PIPELINE: Irrelevant Document Detected! Bank: {bank_matches}, Trans: {transaction_matches}, Money: {len(money_values)}, Dates: {len(dates_found)}")
                 async with async_session() as db:
                     result = await db.execute(select(Document).where(Document.id == document_id))
@@ -258,6 +265,8 @@ async def async_process_document(document_id: int):
                         )
                         await db.commit()
                 return f"Processed document {document_id}: INVALID_DOCUMENT"
+            elif not is_valid_statement:
+                print("PIPELINE: Non-bank document in AUTO mode. Bypassing relevance filtering.")
 
             await asyncio.sleep(0.2) 
             
@@ -406,14 +415,43 @@ async def async_process_document(document_id: int):
                 ext_data = aadhaar_results.get("extracted_data", {})
                 checkpoints.extend(aadhaar_results.get("checkpoints", []))
             elif detected_type == "PAN":
-                pan_results = PanVerification.verify_pan(ocr_results)
-                anomalies.extend(pan_results.get("anomalies", []))
+                # FINAL SPEC v4.0: RE-OCR with Strict 1024x640 Normalization
+                print("PIPELINE: Detected PAN. Running strict 1024x640 normalization...")
+                from app.forensics.pre_processing import normalize_for_pan
+                norm_pan_path = await to_thread(normalize_for_pan, primary_p_path)
+                
+                # Re-run OCR on the normalized image
+                ocr_results = await to_thread(perform_ocr, norm_pan_path, original_path=file_path)
+                
+                pan_results = PanVerification.verify_pan(
+                    ocr_results,
+                    symbol_results=merged_symbol_results,
+                    forensic_results=forensic_results,
+                    image_path=norm_pan_path
+                )
+                
+                # v7.0: use extracted_data key
                 ext_data.update(pan_results.get("extracted_data", {}))
-                checkpoints.append({
-                    "name": "PAN Identification",
-                    "status": "PASS",
-                    "details": "Document identified as Permanent Account Number (PAN) card."
-                })
+                checkpoints = pan_results.get("checkpoints", []) # Now using standard 7-checkpoint list
+                
+                doc_status = pan_results.get("verdict", "UNKNOWN")
+                failure_count = pan_results.get("failure_count", 0)
+                
+                if doc_status == "FAKE":
+                    anomalies.append({
+                        "type": "PAN_IDENTITY_FAKE",
+                        "message": f"PAN card identity verification FAILED ({failure_count} failures). Verdict: FAKE.",
+                        "severity": "CRITICAL"
+                    })
+                elif doc_status == "SUSPICIOUS":
+                    anomalies.append({
+                        "type": "PAN_IDENTITY_SUSPICIOUS",
+                        "message": f"PAN card identity verification SUSPICIOUS (1 failure). Verdict: SUSPICIOUS.",
+                        "severity": "HIGH"
+                    })
+                else:
+                    print("PIPELINE: PAN Identity Verified as REAL.")
+
             elif detected_type == "CERTIFICATE":
                 cert_results = AcademicVerification.verify_certificate(ocr_results)
                 anomalies.extend(cert_results.get("anomalies", []))

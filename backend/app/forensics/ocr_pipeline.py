@@ -18,8 +18,8 @@ def get_ocr_reader():
     global reader
     with reader_lock:
         if reader is None:
-            print("Initializing EasyOCR Engine (CPU mode)...")
-            reader = easyocr.Reader(['en'], gpu=False)
+            print("Initializing EasyOCR Engine (CPU mode, Multilingual: EN+HI)...")
+            reader = easyocr.Reader(['en', 'hi'], gpu=False)
     return reader
 
 def perform_ocr(image_path: str, original_path: str = None) -> dict:
@@ -215,16 +215,20 @@ def perform_ocr(image_path: str, original_path: str = None) -> dict:
                     try: tess_text = pytesseract.image_to_string(Image.open(image_path)).strip()
                     except: pass
         
-        # 3. QR Code Detection/Decoding (Skip if PAN card)
+        # 3. QR Code Detection/Decoding (Improved for all documents)
         qr_data = None
-        if not is_likely_pan:
-            try:
-                img = cv2.imread(image_path)
+        try:
+            img = cv2.imread(image_path)
+            if img is not None:
                 detector = cv2.QRCodeDetector()
                 val, _, _ = detector.detectAndDecode(img)
                 if val:
                     qr_data = val
-            except: pass
+                    print(f"OCR: QR Code detected and decoded.")
+        except Exception as qre:
+            print(f"OCR: QR decoding failed: {qre}")
+        
+        results["qr_data_raw"] = qr_data
 
         return _finalize_ocr_results(results)
 
@@ -261,7 +265,9 @@ def _finalize_ocr_results(results: dict) -> dict:
         confidence_map["BANK_STATEMENT"] = 10
 
     # 2. Classification Heuristics (Accuracy Boost)
-    if any(marker in text_upper for marker in ["GOVERNMENT OF INDIA", "BHARAT SARKAR", "UNIQUE IDENTIFICATION"]):
+    if confidence_map["BANK_STATEMENT"] >= 5:
+        detected_type = "BANK_STATEMENT"
+    elif any(marker in text_upper for marker in ["GOVERNMENT OF INDIA", "BHARAT SARKAR", "UNIQUE IDENTIFICATION"]):
         detected_type = "AADHAAR"
     elif any(marker in text_upper for marker in ["INCOME TAX DEPARTMENT", "PERMANENT ACCOUNT NUMBER", "PAN CARD"]):
         detected_type = "PAN"
@@ -269,8 +275,6 @@ def _finalize_ocr_results(results: dict) -> dict:
         detected_type = "CERTIFICATE"
     elif any(marker in text_upper for marker in ["MARKSHEET", "STATEMENT OF MARKS", "GRADE CARD"]):
         detected_type = "MARKSHEET"
-    elif confidence_map["BANK_STATEMENT"] >= 5:
-        detected_type = "BANK_STATEMENT"
     else:
         # Just pick the best one if count > 0
         best_type = max(confidence_map, key=confidence_map.get)
@@ -320,6 +324,20 @@ def _finalize_ocr_results(results: dict) -> dict:
     extracted_data["text"] = text
     results["document_type"] = detected_type
     results["extracted_data"] = extracted_data
+    
+    # 5. Handle QR Data Parsing
+    raw_qr = results.get("qr_data_raw")
+    if raw_qr:
+        results["qr_data"] = {"raw": raw_qr}
+        # Attempt to parse PAN/Aadhaar QR formats if possible
+        if "PAN" in raw_qr or "Permanent Account Number" in raw_qr:
+            # Very basic extraction from QR text if it's plain text
+            pan_match = re.search(r"\b([A-Z]{5}[0-9]{4}[A-Z])\b", raw_qr)
+            if pan_match:
+                results["qr_data"]["pan"] = pan_match.group(1)
+        elif "<?xml" in raw_qr and "uid" in raw_qr:
+             # Aadhaar Secure QR usually needs special decoding, but some are XML
+             results["qr_data"]["type"] = "AADHAAR_XML"
     
     return results
 

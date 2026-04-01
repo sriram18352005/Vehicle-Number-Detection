@@ -4,6 +4,8 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ThemeSwitcher } from "@/components/ui/ThemeSwitcher";
+import { cn } from "@/lib/utils";
+import { Shield, Activity, FileText, Clipboard, BarChart, Settings as SettingsIcon, LogOut } from "lucide-react";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
     const pathname = usePathname();
@@ -25,22 +27,22 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }, []);
 
     const navItems = [
-        { name: "Threat Intelligence", icon: "insights", path: "/dashboard" },
-        { name: "Document Analysis", icon: "description", path: "/dashboard/analysis" },
-        { name: "Audit Logs", icon: "history_edu", path: "/dashboard/audit-logs" },
-        { name: "Reports", icon: "analytics", path: "/dashboard/reports" },
-        { name: "Settings", icon: "settings", path: "/dashboard/settings" },
+        { name: "Threat Intelligence", icon: <Activity className="w-4 h-4" />, path: "/dashboard" },
+        { name: "Document Analysis", icon: <FileText className="w-4 h-4" />, path: "/dashboard/analysis" },
+        { name: "Audit Logs", icon: <Clipboard className="w-4 h-4" />, path: "/dashboard/audit-logs" },
+        { name: "Reports", icon: <BarChart className="w-4 h-4" />, path: "/dashboard/reports" },
+        { name: "Settings", icon: <SettingsIcon className="w-4 h-4" />, path: "/dashboard/settings" },
     ];
 
     return (
         <div className="flex h-screen overflow-hidden bg-background text-foreground font-display">
             {/* Sidebar */}
-            <aside className="w-64 bg-card border-r border-border flex flex-col z-20 shrink-0">
+            <aside className="w-[220px] bg-[#10131c] border-r border-[#1e2535] flex flex-col z-20 shrink-0">
                 <div className="p-6 flex items-center gap-3">
-                    <div className="w-8 h-8 bg-background border border-border/40 rounded-lg overflow-hidden flex items-center justify-center">
-                        <img src="/logos/verentis_logo.png" alt="Verentis Logo" className="w-full h-full object-cover" />
+                    <div className="w-8 h-8 bg-[#00c2cb] rounded-lg flex items-center justify-center">
+                        <Shield className="w-5 h-5 text-[#0a0d14]" />
                     </div>
-                    <h1 className="text-lg font-extrabold tracking-tight">Verentis</h1>
+                    <h1 className="text-xl font-black tracking-tighter uppercase text-[#e8ecf4]">Verentis</h1>
                 </div>
 
                 <nav className="flex-1 px-4 py-4 space-y-1">
@@ -48,10 +50,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                         <Link
                             key={item.path}
                             href={item.path}
-                            className={`sidebar-item ${pathname === item.path ? 'active' : ''}`}
+                            className={cn(
+                                "flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 group",
+                                pathname === item.path
+                                    ? "bg-[#00c2cb15] text-[#00c2cb] border border-[#00c2cb30]"
+                                    : "text-[#4a5568] hover:text-[#e8ecf4] hover:bg-[#1e2535]"
+                            )}
                         >
-                            <span className="material-symbols-outlined text-xl">{item.icon}</span>
-                            <span className="text-sm font-semibold">{item.name}</span>
+                            <span className={cn(
+                                "transition-transform group-hover:scale-110",
+                                pathname === item.path ? "text-[#00c2cb]" : "text-inherit"
+                            )}>
+                                {item.icon}
+                            </span>
+                            <span className="text-[10px] font-black uppercase tracking-widest">{item.name}</span>
                         </Link>
                     ))}
                 </nav>
@@ -84,12 +96,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <main className="flex-1 flex flex-col overflow-hidden">
                 <header className="h-16 bg-card/80 backdrop-blur-sm border-b border-border px-8 flex items-center justify-between sticky top-0 z-10 shrink-0">
                     <div>
-                        <h2 className="text-sm font-bold text-muted-foreground uppercase tracking-widest">
-                            {pathname === '/dashboard' ? 'Dashboard Overview' :
-                                pathname === '/dashboard/analysis' ? 'Forensic Services' :
-                                    pathname === '/dashboard/audit-logs' ? 'Compliance & Governance' :
-                                        pathname === '/dashboard/reports' ? 'Reporting Analytics' :
-                                            pathname === '/dashboard/settings' ? 'Administrative Control' : 'Operations'}
+                        <h2 className="text-sm font-black text-[#e8ecf4] uppercase tracking-[0.2em]">
+                            FORENSIC SERVICES
                         </h2>
                     </div>
                     <div className="flex items-center gap-4">

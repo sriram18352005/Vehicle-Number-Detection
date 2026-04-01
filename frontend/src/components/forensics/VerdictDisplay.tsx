@@ -2,7 +2,7 @@ import { Shield, ShieldAlert, ShieldCheck, AlertTriangle, CheckCircle2, XCircle 
 import { cn } from "@/lib/utils";
 
 interface VerdictDisplayProps {
-    verdict: "GENUINE" | "SUSPICIOUS" | "LIKELY FORGED" | "REAL" | "FAKE" | "VERIFIED" | "VALID" | null;
+    verdict: "GENUINE" | "SUSPICIOUS" | "LIKELY FORGED" | "REAL" | "FAKE" | "VERIFIED" | "VALID" | "SECURE" | "VIOLATION" | null;
     reasons: string[];
     isProcessing: boolean;
     confidenceScore?: number;
@@ -11,9 +11,9 @@ interface VerdictDisplayProps {
 }
 
 export function VerdictDisplay({ verdict, reasons, isProcessing, confidenceScore, anomalyScore, mlScore }: VerdictDisplayProps) {
-    const isAuthentic = verdict === "REAL" || verdict === "GENUINE" || verdict === "VERIFIED" || verdict === "VALID";
+    const isAuthentic = verdict === "REAL" || verdict === "GENUINE" || verdict === "VERIFIED" || verdict === "VALID" || verdict === "SECURE";
     const isSuspicious = verdict === "SUSPICIOUS";
-    const isForged = verdict === "FAKE" || verdict === "LIKELY FORGED";
+    const isForged = verdict === "FAKE" || verdict === "LIKELY FORGED" || verdict === "VIOLATION";
 
     // Ensure confidence score is never shown as 0% if analysis was attempted
     const displayConfidence = Math.max(1, (confidenceScore || 0) > 1 ? (confidenceScore || 0) : (confidenceScore || 0) * 100);
@@ -68,20 +68,20 @@ export function VerdictDisplay({ verdict, reasons, isProcessing, confidenceScore
                         </div>
                         <div>
                             <p className={cn(
-                                "text-4xl font-black tracking-widest font-mono",
+                                "text-3xl font-black tracking-widest font-mono",
                                 isAuthentic ? "text-success" : isSuspicious ? "text-warning" : "text-destructive"
                             )}>
-                                {isAuthentic ? "REAL" : isSuspicious ? "SUSPICIOUS" : "FAKE"}
+                                {isAuthentic ? "VERIFIED" : isSuspicious ? "SUSPICIOUS" : "INVALID"}
                             </p>
                             <p className={cn(
                                 "text-sm mt-3 font-medium",
                                 isAuthentic ? "text-success/80" : isSuspicious ? "text-warning/80" : "text-destructive/80"
                             )}>
                                 {isAuthentic
-                                    ? "Document verified as genuine through multi-spectral audit."
+                                    ? "Identity document verified as genuine."
                                     : isSuspicious
-                                        ? "Verification successful but with borderline anomalies detected."
-                                        : "Forensic markers indicate high probability of digital manipulation."
+                                        ? "Identity document verified with borderline anomalies detected."
+                                        : "Identity document failed integrity checks — possible manipulation."
                                 }
                             </p>
                         </div>

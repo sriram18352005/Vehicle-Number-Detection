@@ -1,25 +1,10 @@
 import { useState, useMemo } from "react";
 import { Eye, ZoomIn, ZoomOut, Maximize2, Shield, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { BoundingBoxOverlay } from "./BoundingBoxOverlay";
-
-export interface BoundingBox {
-    id: string;
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    label: string;
-    status: "valid" | "suspicious" | "fraud";
-    type?: "HIGHLIGHT" | "BOX" | "MARK";
-    reason?: string;
-}
 
 interface DocumentPreviewProps {
     imageUrl: string | null;
     isScanning: boolean;
-    boundingBoxes: BoundingBox[];
-    showBoxes: boolean;
     documentType?: string | null;
     verdict?: string | null;
     scores?: {
@@ -33,28 +18,23 @@ interface DocumentPreviewProps {
     pageUrls?: string[];
     onPageChange?: (index: number) => void;
     currentPageIndex?: number;
-    activeBoxId?: string | null;
 }
 
 export function DocumentPreview({
     imageUrl,
     isScanning,
-    boundingBoxes,
-    showBoxes,
     documentType,
     verdict,
     scores,
     isPdf: isPdfProp,
     pageUrls = [],
     onPageChange,
-    currentPageIndex = 0,
-    activeBoxId
+    currentPageIndex = 0
 }: DocumentPreviewProps) {
     const [zoom, setZoom] = useState(1);
     const [offset, setOffset] = useState({ x: 0, y: 0 });
     const [isDragging, setIsDragging] = useState(false);
     const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-    const [hoveredBox, setHoveredBox] = useState<string | null>(null);
     const [imageError, setImageError] = useState(false);
 
     const isPdf = isPdfProp ?? false;
@@ -170,13 +150,6 @@ export function DocumentPreview({
                                 </div>
                             )}
 
-                            {showBoxes && (
-                                <BoundingBoxOverlay
-                                    boundingBoxes={boundingBoxes}
-                                    currentPage={currentPageIndex}
-                                    activeBoxId={activeBoxId || hoveredBox}
-                                />
-                            )}
                         </div>
 
                         {/* Phase 7: Forensic Audit Dashboard Overlay */}
@@ -275,22 +248,6 @@ export function DocumentPreview({
                 )}
             </div>
 
-            {showBoxes && boundingBoxes.length > 0 && (
-                <div className="mt-4 flex items-center gap-4 text-xs">
-                    <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-sm bg-success/30 border border-success" />
-                        <span className="text-muted-foreground">Valid</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-sm bg-warning/30 border border-warning" />
-                        <span className="text-muted-foreground">Suspicious</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-sm bg-destructive/30 border border-destructive" />
-                        <span className="text-muted-foreground">Fraud</span>
-                    </div>
-                </div>
-            )}
         </div>
     );
 }

@@ -60,10 +60,10 @@ export default function DashboardPage() {
         }
     };
 
-    const fetchTrends = async (days: number) => {
+    const fetchTrends = async (days: number, silent = false) => {
         const token = localStorage.getItem("token");
         if (!token) return;
-        setTrendsLoading(true);
+        if (!silent) setTrendsLoading(true);
 
         try {
             const res = await fetch(`http://127.0.0.1:8000/api/v1/analytics/trends?days=${days}`, {
@@ -76,12 +76,54 @@ export default function DashboardPage() {
         } catch (err) {
             console.error("Failed to fetch trends:", err);
         } finally {
-            setTrendsLoading(false);
+            if (!silent) setTrendsLoading(false);
+        }
+    };
+
+    const fetchOtherStats = async () => {
+        const token = localStorage.getItem("token");
+        if (!token) return;
+        try {
+            const [statsRes, activityRes] = await Promise.all([
+                fetch("http://127.0.0.1:8000/api/v1/analytics/summary", {
+                    headers: { Authorization: `Bearer ${token}` }
+                }),
+                fetch("http://127.0.0.1:8000/api/v1/documents/?limit=10", {
+                    headers: { Authorization: `Bearer ${token}` }
+                })
+            ]);
+
+            if (statsRes.ok) {
+                const statsData = await statsRes.json();
+                setStats({
+                    verified: (statsData.total_verified || 0).toLocaleString(),
+                    fraud: (statsData.fraud_detected || 0).toLocaleString(),
+                    confidence: `${((statsData.avg_confidence || 0) * 100).toFixed(1)}%`
+                });
+            }
+
+            if (activityRes.ok) {
+                const data = await activityRes.json();
+                setActivityItems(data.map((doc: any) => {
+                    const verdict = doc.verdict || 'UNKNOWN';
+                    const confidence = doc.confidence_score || 0;
+                    return {
+                        id: `CASE-${doc.id}`,
+                        status: verdict === 'UNKNOWN' ? 'Pending' : verdict.charAt(0) + verdict.slice(1).toLowerCase(),
+                        color: verdict === 'VERIFIED' ? 'status-verified' : verdict === 'FAKE' ? 'status-fake' : 'status-suspicious',
+                        title: doc.filename,
+                        time: new Date(doc.created_at || Date.now()).toLocaleTimeString(),
+                        conf: `${(confidence * 100).toFixed(1)}%`
+                    };
+                }));
+            }
+        } catch (err) {
+            console.error(err);
         }
     };
 
     useEffect(() => {
-        const fetchData = async () => {
+        const initData = async () => {
             const token = localStorage.getItem("token");
             if (!token) {
                 setLoading(false);
@@ -89,64 +131,23 @@ export default function DashboardPage() {
                 setTrendsLoading(false);
                 return;
             }
-
-            try {
-                // Initial fetches
-                fetchMetrics();
-                fetchTrends(timeFilter);
-
-                // Fetch Stats and Activities in parallel
-                const [statsRes, activityRes] = await Promise.all([
-                    fetch("http://127.0.0.1:8000/api/v1/analytics/summary", {
-                        headers: { Authorization: `Bearer ${token}` }
-                    }),
-                    fetch("http://127.0.0.1:8000/api/v1/documents/?limit=10", {
-                        headers: { Authorization: `Bearer ${token}` }
-                    })
-                ]);
-
-                if (statsRes.ok) {
-                    const statsData = await statsRes.json();
-                    setStats({
-                        verified: (statsData.total_verified || 0).toLocaleString(),
-                        fraud: (statsData.fraud_detected || 0).toLocaleString(),
-                        confidence: `${((statsData.avg_confidence || 0) * 100).toFixed(1)}%`
-                    });
-                }
-
-                if (activityRes.ok) {
-                    const data = await activityRes.json();
-                    setActivityItems(data.map((doc: any) => {
-                        const verdict = doc.verdict || 'UNKNOWN';
-                        const confidence = doc.confidence_score || 0;
-                        return {
-                            id: `CASE-${doc.id}`,
-                            status: verdict === 'UNKNOWN' ? 'Pending' : verdict.charAt(0) + verdict.slice(1).toLowerCase(),
-                            color: verdict === 'VERIFIED' ? 'status-verified' : verdict === 'FAKE' ? 'status-fake' : 'status-suspicious',
-                            title: doc.filename,
-                            time: new Date(doc.created_at || Date.now()).toLocaleTimeString(),
-                            conf: `${(confidence * 100).toFixed(1)}%`
-                        };
-                    }));
-                }
-            } catch (err) {
-                console.error(err);
-            } finally {
-                setLoading(false);
-            }
+            await Promise.all([
+                fetchMetrics(),
+                fetchTrends(timeFilter),
+                fetchOtherStats()
+            ]);
+            setLoading(false);
         };
-        fetchData();
+        initData();
 
-        // Polling for metrics every 5 seconds
-        const metricsInterval = setInterval(fetchMetrics, 5000);
-        return () => clearInterval(metricsInterval);
-    }, []);
+        // Polling for EVERYTHING every 5 seconds
+        const pollInterval = setInterval(() => {
+            fetchMetrics();
+            fetchTrends(timeFilter, true); // silent reload
+            fetchOtherStats();
+        }, 5000);
 
-    // Effect to re-fetch trends when timeFilter changes
-    useEffect(() => {
-        if (!loading) {
-            fetchTrends(timeFilter);
-        }
+        return () => clearInterval(pollInterval);
     }, [timeFilter]);
 
     const chartData = [40, 60, 35, 85, 55, 25, 45];

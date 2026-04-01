@@ -212,8 +212,8 @@ export function BatchDashboard({ summary, items, onViewDetails, activeBank }: Ba
                                                     "text-[11px] font-medium leading-tight truncate",
                                                     isInvalid || verdict === 'FAKE' ? "text-rose-500" : "text-muted-foreground"
                                                 )}>
-                                                    {isInvalid ? "Irrelevant document detected" :
-                                                        item.error || item.result?.reasons?.[0] || (item.status === 'completed' ? "Valid bank internal structure" : "Awaiting analysis...")}
+                                                    {item.status === 'invalid' ? "Invalid document format" :
+                                                        item.result?.remarks || item.error || item.result?.reasons?.[0] || (item.status === 'completed' ? "Valid bank internal structure" : "Awaiting analysis...")}
                                                 </p>
                                             </td>
 
@@ -344,14 +344,44 @@ export function BatchDashboard({ summary, items, onViewDetails, activeBank }: Ba
                                             <span className="text-[10px] uppercase font-black text-muted-foreground tracking-widest block">Audit Target</span>
                                             <p className="text-sm font-bold text-foreground">{inspecting.checkpoint.name}</p>
                                         </div>
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <div className="space-y-1">
-                                                <span className="text-[10px] uppercase font-black text-muted-foreground tracking-widest block">Detected</span>
-                                                <p className="text-xs font-mono font-bold text-primary break-all">{inspecting.checkpoint.detected_value || "—"}</p>
+                                        <div className="grid grid-cols-1 gap-4">
+                                            <div className="space-y-1.5">
+                                                <span className="text-[10px] uppercase font-black text-muted-foreground tracking-widest block">Detected Data (Audit Evidence)</span>
+                                                {inspecting.checkpoint.detected ? (
+                                                    <div className="bg-primary/5 border border-primary/20 rounded-lg p-3 font-mono text-[10px] text-primary space-y-2 max-h-[150px] overflow-y-auto">
+                                                        {typeof inspecting.checkpoint.detected === 'object' ? (
+                                                            Array.isArray(inspecting.checkpoint.detected) ? (
+                                                                inspecting.checkpoint.detected.map((row: any, i: number) => (
+                                                                    <div key={i} className="border-b border-primary/10 pb-1 last:border-0 last:pb-0">
+                                                                        {Object.entries(row).map(([k, v]) => (
+                                                                            <div key={k} className="flex gap-2">
+                                                                                <span className="opacity-60">{k}:</span>
+                                                                                <span className="font-bold">{String(v)}</span>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                ))
+                                                            ) : (
+                                                                Object.entries(inspecting.checkpoint.detected).map(([k, v]) => (
+                                                                    <div key={k} className="flex gap-2">
+                                                                        <span className="opacity-60 uppercase text-[8px]">{k.replace('_', ' ')}:</span>
+                                                                        <span className="font-bold truncate">{String(v)}</span>
+                                                                    </div>
+                                                                ))
+                                                            )
+                                                        ) : (
+                                                            <p className="font-bold break-all">{inspecting.checkpoint.detected}</p>
+                                                        )}
+                                                    </div>
+                                                ) : (
+                                                    <p className="text-xs font-mono font-bold text-primary break-all">{inspecting.checkpoint.detected_value || "—"}</p>
+                                                )}
                                             </div>
-                                            <div className="space-y-1">
-                                                <span className="text-[10px] uppercase font-black text-muted-foreground tracking-widest block">Expected</span>
-                                                <p className="text-xs font-mono font-medium text-foreground break-all">{inspecting.checkpoint.expected_value || "Schema Match"}</p>
+                                            <div className="space-y-1 mt-2">
+                                                <span className="text-[10px] uppercase font-black text-muted-foreground tracking-widest block">Expected Calibration</span>
+                                                <p className="text-xs font-mono font-medium text-foreground bg-secondary/50 p-2 rounded border border-border/40">
+                                                    {inspecting.checkpoint.expected || inspecting.checkpoint.expected_value || "Schema Match"}
+                                                </p>
                                             </div>
                                         </div>
                                     </div>
@@ -388,32 +418,8 @@ export function BatchDashboard({ summary, items, onViewDetails, activeBank }: Ba
                                                     alt="Audit Evidence"
                                                     className="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity grayscale-[50%] group-hover:grayscale-0"
                                                 />
-                                                {/* Find matching bounding box if available */}
-                                                {(() => {
-                                                    const matchingBox = inspecting.item.result?.boundingBoxes?.find(b =>
-                                                        inspecting.checkpoint.name.toLowerCase().includes(b.label.toLowerCase()) ||
-                                                        b.label.toLowerCase().includes(inspecting.checkpoint.name.toLowerCase())
-                                                    );
-
-                                                    if (!matchingBox) return null;
-
-                                                    return (
-                                                        <div
-                                                            className={cn(
-                                                                "absolute border-2 shadow-[0_0_15px_rgba(0,0,0,0.5)] z-10 transition-all cursor-crosshair",
-                                                                inspecting.checkpoint.result === 1.0 ? "border-emerald-500 bg-emerald-500/10" : "border-rose-500 bg-rose-500/10 animate-pulse"
-                                                            )}
-                                                            style={{
-                                                                left: `${matchingBox.x}%`,
-                                                                top: `${matchingBox.y}%`,
-                                                                width: `${matchingBox.width}%`,
-                                                                height: `${matchingBox.height}%`
-                                                            }}
-                                                        />
-                                                    );
-                                                })()}
                                                 <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-4">
-                                                    <p className="text-[10px] text-white/70 font-medium italic">Document Bounding Box: {inspecting.checkpoint.name}</p>
+                                                    <p className="text-[10px] text-white/70 font-medium italic">Document Verification: {inspecting.checkpoint.name}</p>
                                                 </div>
                                             </>
                                         ) : (

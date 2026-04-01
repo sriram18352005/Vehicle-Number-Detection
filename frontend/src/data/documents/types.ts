@@ -79,11 +79,19 @@ export interface Checkpoint {
     page?: number;
 }
 
+export interface PanCheckpoint {
+    id: number;
+    name: string;
+    detail?: string;
+    signal: "PASS" | "FAIL";
+    present?: boolean;
+}
+
 export interface AnalysisResult {
-    verdict: 'GENUINE' | 'SUSPICIOUS' | 'LIKELY FORGED' | 'REAL' | 'FAKE' | 'VERIFIED' | 'VALID' | null;
+    verdict: 'GENUINE' | 'SUSPICIOUS' | 'LIKELY FORGED' | 'REAL' | 'FAKE' | 'VERIFIED' | 'VALID' | 'SECURE' | 'VIOLATION' | 'VALID DOCUMENT' | 'PARTIAL DOCUMENT' | 'IRRELEVANT DOCUMENT' | 'PARTIAL' | null;
     reasons: string[];
     documentType: string | null;
-    extractedData: Record<string, string> | null;
+    extractedData: Record<string, any> | null;
     boundingBoxes: BoundingBox[];
     fraudIndicators: FraudIndicator[];
     boxFindings: BoxFinding[];
@@ -91,10 +99,16 @@ export interface AnalysisResult {
     scores?: ForensicScores;
     isPdf?: boolean;
     viewUrls: string[];
-    ocrText?: string;         // Raw OCR text from the document (normalized for preview)
+    ocrText?: string;
     is_checkpoint_based?: boolean;
     master_template_used?: boolean;
+    panCheckpoints?: PanCheckpoint[];  // v5.0 raw 7-checkpoint array for signal LEDs
+    remarks?: string;
+    qrLocation?: { x: number; y: number; w: number; h: number } | null;
+    qrDetected?: boolean;
+    holderType?: string | null;
 }
+
 
 export const DOCUMENT_TYPES: Record<DocumentType, string> = {
     AADHAAR: 'Aadhaar Card (UID)',

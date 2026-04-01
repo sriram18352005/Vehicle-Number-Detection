@@ -6,13 +6,12 @@ import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { Header } from "@/components/forensics/Header";
-import { DocumentPreview, BoundingBox } from "@/components/forensics/DocumentPreview";
+import { DocumentPreview } from "@/components/forensics/DocumentPreview";
 import { VerdictDisplay } from "@/components/forensics/VerdictDisplay";
 import { PipelineStatus, PipelineStage } from "@/components/forensics/PipelineStatus";
 import { FraudIndicators, FraudIndicator } from "@/components/forensics/FraudIndicators";
 import { HeatmapViewer } from "@/components/forensics/HeatmapViewer";
 import { ExtractedData } from "@/components/forensics/ExtractedData";
-import { BoundingBoxFindings, BoxFinding } from "@/components/forensics/BoundingBoxFindings";
 import { DocumentStandards } from "@/components/forensics/DocumentStandards";
 
 function ResultsContent() {
@@ -21,15 +20,7 @@ function ResultsContent() {
     const [analysisData, setAnalysisData] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const backendUrl = "http://127.0.0.1:8000";
-    const [selectedBoxId, setSelectedBoxId] = useState<string | null>(null);
     const [currentPageIndex, setCurrentPageIndex] = useState(0);
-
-    const handleSelectBox = (box: any) => {
-        setSelectedBoxId(box.id);
-        if (typeof box.page === 'number') {
-            setCurrentPageIndex(box.page);
-        }
-    };
 
     useEffect(() => {
         if (documentId) {
@@ -102,42 +93,6 @@ function ResultsContent() {
             region: anom.region
         }));
 
-    // Map YOLO and Forensic results to BoundingBox and BoxFinding
-    const boundingBoxes: BoundingBox[] = (analysisData?.symbol_results || []).map((det: any, idx: number) => {
-        const box = det.box_2d || det.bbox || [0, 0, 0, 0];
-        let status: "valid" | "suspicious" | "fraud" = "valid";
-        const rawStatus = (det.status || (det.confidence > 0.8 ? "valid" : "suspicious")).toLowerCase();
-        if (rawStatus === "fraud" || rawStatus === "failure" || rawStatus === "forged" || rawStatus === "fake") status = "fraud";
-        else if (rawStatus === "suspicious" || rawStatus === "warning") status = "suspicious";
-
-        return {
-            id: `det-${idx}`,
-            x: box[0],
-            y: box[1],
-            width: box[2],
-            height: box[3],
-            label: det.label,
-            status: status,
-            category: det.category,
-            reason: det.reason,
-            page: det.page || 0
-        };
-    });
-
-    const findings: BoxFinding[] = (analysisData?.symbol_results || []).map((det: any, idx: number) => ({
-        id: `det-${idx}`,
-        region: det.label,
-        issue: det.reason || det.message || (det.confidence > 0.8 ? "Confirmed visual element" : "Low confidence match"),
-        status: (det.status || (det.confidence > 0.8 ? "valid" : "suspicious")).toLowerCase() as any,
-        page: det.page || 0,
-        coordinates: {
-            x: det.box_2d ? det.box_2d[0] : 0,
-            y: det.box_2d ? det.box_2d[1] : 0,
-            w: det.box_2d ? det.box_2d[2] : 0,
-            h: det.box_2d ? det.box_2d[3] : 0
-        }
-    }));
-
     // Derived viewUrls from preview_path (heuristic if not explicitly in JSON)
     const viewUrls = (analysisData?.symbol_results || []).reduce((acc: string[], det: any) => {
         if (typeof det.page === 'number' && !acc.includes(det.page)) {
@@ -161,10 +116,7 @@ function ResultsContent() {
                             pageUrls={viewUrls}
                             currentPageIndex={currentPageIndex}
                             onPageChange={setCurrentPageIndex}
-                            activeBoxId={selectedBoxId}
                             isScanning={isProcessing}
-                            boundingBoxes={boundingBoxes}
-                            showBoxes={true}
                             documentType={analysisData?.document_type}
                             verdict={verdictValue}
                             scores={forensic.scores}
@@ -203,11 +155,6 @@ function ResultsContent() {
 
                         <FraudIndicators
                             indicators={indicators}
-                        />
-
-                        <BoundingBoxFindings
-                            findings={findings}
-                            onClickFinding={handleSelectBox}
                         />
                     </div>
                 </div>

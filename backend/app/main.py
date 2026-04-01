@@ -64,6 +64,9 @@ app.include_router(audit.router, prefix=f"{settings.API_V1_STR}/audit", tags=["a
 from app.api.endpoints import debug
 app.include_router(debug.router, prefix=f"{settings.API_V1_STR}", tags=["debug"])
 
+from app.api.endpoints import vehicle
+app.include_router(vehicle.router, prefix=f"{settings.API_V1_STR}/vehicle", tags=["vehicle"])
+
 # Explicit alias for dashboard metrics
 @app.get("/api/dashboard/metrics")
 async def dashboard_metrics_alias(

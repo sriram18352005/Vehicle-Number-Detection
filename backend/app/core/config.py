@@ -31,8 +31,12 @@ class Settings(BaseSettings):
     GOOGLE_CLOUD_LOCATION: str = "us"  # 'us' or 'eu'
     GOOGLE_DOCUMENT_AI_PROCESSOR_ID: str = "your-processor-id"
     
+    # Gemini API
+    GEMINI_API_KEY: Optional[str] = None
+    
     class Config:
         env_file = ".env"
         case_sensitive = True
+        extra = "ignore"
 
 settings = Settings()

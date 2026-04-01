@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils";
 import { VerdictDisplay } from "./VerdictDisplay";
 import { FraudIndicators } from "./FraudIndicators";
 import { ExtractedData } from "./ExtractedData";
-import { BoundingBoxFindings } from "./BoundingBoxFindings";
+import { IdentityDataPanel } from "./IdentityDataPanel";
 import { FraudSummary } from "./FraudSummary";
 import { ScoreBreakdown } from "./ScoreBreakdown";
 
@@ -12,10 +12,11 @@ interface AnalysisSidebarProps {
     isProcessing: boolean;
     documentType: string;
     selectedBank?: string;
+    analysisMode?: "identity" | "finance" | "vehicle";
     onSelectBox?: (box: any) => void;
 }
 
-export function AnalysisSidebar({ result, isProcessing, documentType, selectedBank, onSelectBox }: AnalysisSidebarProps) {
+export function AnalysisSidebar({ result, isProcessing, documentType, selectedBank, analysisMode, onSelectBox }: AnalysisSidebarProps) {
     const fraudBoxes = (result.boundingBoxes || []).filter((b: any) => b.status === "fraud");
     const suspiciousBoxes = (result.boundingBoxes || []).filter((b: any) => b.status === "suspicious");
 
@@ -48,7 +49,9 @@ export function AnalysisSidebar({ result, isProcessing, documentType, selectedBa
                     </div>
                     <div className="flex items-center gap-2">
                         <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
-                        <span className="text-[10px] font-black uppercase tracking-widest text-primary/80">Active Validation Model</span>
+                        <span className="text-[10px] font-black uppercase tracking-widest text-primary/80">
+                            {analysisMode === "vehicle" ? "Active Vehicle Model" : "Active Validation Model"}
+                        </span>
                     </div>
                     <span className="text-xs font-black text-primary px-2 py-0.5 bg-primary/20 rounded-md">
                         {selectedBank}
@@ -115,31 +118,47 @@ export function AnalysisSidebar({ result, isProcessing, documentType, selectedBa
                     <AlertTriangle className="w-4 h-4 text-warning" />
                     <h2 className="text-xs font-black uppercase tracking-widest text-warning/80">Integrity Signals</h2>
                 </div>
-                <FraudIndicators indicators={result.fraudIndicators} />
+                <FraudIndicators
+                    indicators={result.fraudIndicators}
+                    documentType={documentType}
+                    analysisMode={analysisMode}
+                    checkpoints={result.panCheckpoints || result.checkpoints}
+                />
             </section>
 
-            {/* 3. Extracted Data (The 'What') */}
+            {/* 3. Extracted Data — Identity panel for PAN/Aadhaar, generic for bank */}
             <section className="animate-in slide-in-from-right-8 duration-500 delay-150">
                 <div className="flex items-center gap-2 mb-3">
                     <Database className="w-4 h-4 text-primary" />
                     <h2 className="text-xs font-black uppercase tracking-widest text-primary/80">Extracted Intel</h2>
                 </div>
-                <ExtractedData
-                    data={result.extractedData}
-                    documentType={documentType}
-                />
-            </section>
-
-            {/* 4. Localized Findings (The 'Where') */}
-            <section className="animate-in slide-in-from-right-10 duration-600 delay-200">
-                <div className="flex items-center gap-2 mb-3">
-                    <Search className="w-4 h-4 text-muted-foreground" />
-                    <h2 className="text-xs font-black uppercase tracking-widest text-muted-foreground">Spatial Findings</h2>
-                </div>
-                <BoundingBoxFindings
-                    findings={result.boxFindings}
-                    onClickFinding={onSelectBox}
-                />
+                {/* Identity document: any type matching PAN / AADHAAR / IDENTITY */}
+                {(() => {
+                    const dt = (documentType || "").toUpperCase();
+                    const isIdentity = dt.includes("PAN") || dt.includes("AADHAAR") || dt.includes("IDENTITY");
+                    if (isIdentity) {
+                        return (
+                            <IdentityDataPanel
+                                data={{
+                                    ...(result.extractedData || {}),
+                                    document_type: result.extractedData?.document_type || documentType,
+                                    qr_location: result.qrLocation,
+                                    qr_detected: result.extractedData?.qr_detected ?? (result.qrDetected ? "Yes" : "No"),
+                                    photo_detected: result.extractedData?.photo_detected,
+                                    signature_detected: result.extractedData?.signature_detected,
+                                    holder_type: result.holderType,
+                                }}
+                                documentType={documentType}
+                            />
+                        );
+                    }
+                    return (
+                        <ExtractedData
+                            data={result.extractedData}
+                            documentType={documentType}
+                        />
+                    );
+                })()}
             </section>
 
             {/* 5. OCR Text Preview (The 'Raw Data') */}

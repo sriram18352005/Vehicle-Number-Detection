@@ -1,39 +1,21 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Eye, FileText, ZoomIn, ZoomOut, Maximize2, Shield, ChevronLeft, ChevronRight, Layers, AlertTriangle, Activity, CheckCircle2, XCircle, HelpCircle } from "lucide-react";
+import { Eye, FileText, ZoomIn, ZoomOut, Maximize2, Shield, ChevronLeft, ChevronRight, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { BoundingBoxOverlay } from "./BoundingBoxOverlay";
-
-interface BoundingBox {
-    id: string;
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    label: string;
-    status: "valid" | "suspicious" | "fraud";
-    category?: string;
-    reason?: string;
-    type?: "HIGHLIGHT" | "BOX" | "MARK";
-}
 
 interface DocumentViewerProps {
     fileUrl: string | null; // Original PDF/Image URL
     viewUrls: string[];    // Converted Page Image URLs
     isScanning: boolean;
-    boundingBoxes: BoundingBox[];
-    showBoxes: boolean;
     verdict?: string | null;
-    activeBoxId?: string | null;
 }
 
-export function DocumentViewer({ fileUrl, viewUrls, isScanning, boundingBoxes, showBoxes, verdict, activeBoxId }: DocumentViewerProps) {
+export function DocumentViewer({ fileUrl, viewUrls, isScanning, verdict }: DocumentViewerProps) {
     const [viewMode, setViewMode] = useState<"forensic" | "original">("forensic");
     const [zoom, setZoom] = useState(1);
     const [currentPage, setCurrentPage] = useState(0);
     const containerRef = useRef<HTMLDivElement>(null);
-    const [hoveredBox, setHoveredBox] = useState<string | null>(null);
     const [forensicImageError, setForensicImageError] = useState(false);
 
     const handleZoomIn = () => setZoom(prev => Math.min(prev + 0.25, 3));
@@ -201,15 +183,6 @@ export function DocumentViewer({ fileUrl, viewUrls, isScanning, boundingBoxes, s
                                                 <div className="scanning-line" />
                                                 <div className="absolute inset-0 bg-primary/5 animate-pulse" />
                                             </div>
-                                        )}
-
-                                        {/* Forensic Markers Overlay */}
-                                        {showBoxes && !isScanning && (
-                                            <BoundingBoxOverlay
-                                                boundingBoxes={boundingBoxes}
-                                                currentPage={currentPage}
-                                                activeBoxId={activeBoxId || hoveredBox}
-                                            />
                                         )}
                                     </div>
                                 )}
