@@ -118,6 +118,83 @@ async function detectQRCode(file: File): Promise<{
     }
 }
 
+function saveAnalyticsResult(mode: 'single' | 'batch', files: any[]) {
+    try {
+        const storeStr = localStorage.getItem('verentis_analytics');
+        const store = storeStr ? JSON.parse(storeStr) : { sessions: [], totalProcessed: 0, lastUpdated: 0 };
+
+        let valid = 0, invalid = 0, partial = 0, skipped = 0;
+        files.forEach(f => {
+            if (f.status === 'valid') valid++;
+            else if (f.status === 'invalid' || f.status === 'error') invalid++;
+            else if (f.status === 'partial') partial++;
+            else if (f.status === 'skipped') skipped++;
+        });
+
+        store.sessions.unshift({
+            id: 'ses_' + Date.now().toString(36) + Math.random().toString(36).substring(2, 5),
+            timestamp: Date.now(),
+            mode,
+            files,
+            totalFiles: files.length,
+            validCount: valid,
+            invalidCount: invalid,
+            partialCount: partial,
+            skippedCount: skipped
+        });
+
+        if (store.sessions.length > 200) store.sessions = store.sessions.slice(0, 200);
+
+        store.totalProcessed += files.length;
+        store.lastUpdated = Date.now();
+        localStorage.setItem('verentis_analytics', JSON.stringify(store));
+    } catch (e) {
+        console.error("Failed to save analytics", e);
+    }
+}
+
+function ConfidenceRing({ value, label, color }: { value: number, label: string, color: string }) {
+    const radius = 28;
+    const circumference = 2 * Math.PI * radius;
+    const filled = (value / 100) * circumference;
+    const empty = circumference - filled;
+    return (
+        <div className="conf-ring-wrap" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+            <svg width="70" height="70" viewBox="0 0 70 70">
+                <circle cx="35" cy="35" r={radius} fill="none" stroke="#1e2535" strokeWidth="5" />
+                <circle cx="35" cy="35" r={radius} fill="none" stroke={color} strokeWidth="5" strokeDasharray={`${filled} ${empty}`} strokeDashoffset={circumference * 0.25} strokeLinecap="round" transform="rotate(-90 35 35)" style={{ transition: 'stroke-dasharray 0.8s ease' }} />
+                <text x="35" y="40" textAnchor="middle" fill="#e8ecf4" fontSize="13" fontWeight="800">
+                    {Math.round(value)}%
+                </text>
+            </svg>
+            <div style={{ fontSize: '10px', color: '#4a5568', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '1px' }}>{label}</div>
+        </div>
+    );
+}
+
+function renderChassisValue(chassis: string | null) {
+    if (!chassis) return 'Not Detected';
+    if (chassis.length < 5) return <span style={{ fontFamily: 'monospace', fontSize: '22px', fontWeight: 700, color: '#e8ecf4' }}>{chassis}</span>;
+    const prefix = chassis.substring(0, 3);
+    const rest = chassis.substring(3);
+    return (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+            <span className="chassis-prefix" style={{ fontFamily: 'monospace', fontSize: '20px', fontWeight: 800, color: '#00c2cb', background: 'rgba(0,194,203,0.12)', borderRadius: '4px', padding: '2px 6px', letterSpacing: '2px', border: '1px solid rgba(0,194,203,0.2)' }}>{prefix}</span>
+            <span className="chassis-rest" style={{ fontFamily: 'monospace', fontSize: '20px', fontWeight: 600, color: '#e8ecf4', letterSpacing: '2px' }}>{rest}</span>
+        </span>
+    );
+}
+
+function renderRegValue(reg: string | null) {
+    if (!reg) return 'Not Detected';
+    const parts = reg.split(' ');
+    return (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            {parts.map((p, i) => <span key={i} className={`reg-part-${i}`} style={{ fontFamily: 'monospace', fontSize: '20px', fontWeight: 800, letterSpacing: '1px', background: i === 0 ? 'rgba(0,194,203,0.1)' : i === 1 ? 'rgba(0,136,255,0.1)' : 'transparent', padding: i < 2 ? '2px 6px' : '0', borderRadius: '4px', color: i === 0 ? '#00c2cb' : i === 1 ? '#0088ff' : '#e8ecf4' }}>{p}</span>)}
+        </span>
+    );
+}
+
 export function VehicleModule() {
     const [mode, setMode] = useState<AppMode>("single");
     const [backendStatus, setBackendStatus] = useState<"checking" | "online" | "offline">("checking");
@@ -130,6 +207,13 @@ export function VehicleModule() {
     const [batchRows, setBatchRows] = useState<BatchRow[]>([]);
     const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
     const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0, fileName: "" });
+    const [toasts, setToasts] = useState<Array<{ id: number, msg: string, type: string }>>([]);
+
+    const showToast = (msg: string, type: 'success' | 'error') => {
+        const id = Date.now();
+        setToasts(prev => [...prev, { id, msg, type }]);
+        setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000);
+    };
 
     const fileRef = useRef<HTMLInputElement>(null);
     const folderRef = useRef<HTMLInputElement>(null);
@@ -237,7 +321,19 @@ export function VehicleModule() {
                 statusMessage: data.statusMessage,
                 ocrItemsFound: data.ocrItemsFound
             });
+            saveAnalyticsResult('single', [{
+                filename: file.name,
+                status: data.status,
+                chassis: data.chassis?.value || null,
+                manufacturer: data.chassis?.manufacturer || null,
+                registration: data.registration?.value || null,
+                state: data.registration?.state || null,
+                confidence: Math.max(data.chassis?.confidence || 0, data.registration?.confidence || 0),
+                processingTime: 1.5,
+                rejectionReason: data.chassis?.rejection_reason || null
+            }]);
             setSingleStatus('complete');
+            showToast(`Analysis complete: ${data.status.toUpperCase()}`, data.status === 'valid' ? 'success' : 'error');
 
         } catch (err: any) {
             setSingleResult({
@@ -245,7 +341,19 @@ export function VehicleModule() {
                 chassis: { value: null, source: '', confidence: 0 }, registration: { value: null, source: '', confidence: 0 },
                 pagesScanned: 0, ocrItemsFound: 0
             });
+            saveAnalyticsResult('single', [{
+                filename: file.name,
+                status: 'error',
+                chassis: null,
+                manufacturer: null,
+                registration: null,
+                state: null,
+                confidence: 0,
+                processingTime: 0.1,
+                rejectionReason: err.message
+            }]);
             setSingleStatus('complete');
+            showToast(`Analysis failed: ${err.message}`, 'error');
         }
     };
 
@@ -299,7 +407,19 @@ export function VehicleModule() {
             await delay(300);
         }
         setBatchRows([...results]);
+        saveAnalyticsResult('batch', results.map(r => ({
+            filename: r.fileName,
+            status: r.status,
+            chassis: r.chassis,
+            manufacturer: r.chassisManufacturer || null,
+            registration: r.registration,
+            state: r.regState || null,
+            confidence: Math.max(r.chassisConfidence || 0, r.regConfidence || 0),
+            processingTime: 1.2,
+            rejectionReason: r.chassisRejectionReason || null
+        })));
         setBatchStatus('complete');
+        showToast(`Batch processing completed (${results.length} files)`, 'success');
     };
 
     const exportCSV = () => {
@@ -432,6 +552,12 @@ export function VehicleModule() {
             .summary-label { font-size: 10px; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase; opacity: 0.6; }
             .csv-btn { padding: 8px 16px; background: transparent; border: 1px solid rgba(0,194,203,0.5); color: #00c2cb; border-radius: 8px; font-size: 11px; font-weight: 700; cursor: pointer; text-transform: uppercase; letter-spacing: 1px; transition: all 0.2s; }
             .csv-btn:hover { background: rgba(0,194,203,0.1); border-color: #00c2cb; box-shadow: 0 0 15px rgba(0,194,203,0.2); }
+            @keyframes scanDoc { 0% { transform: translateY(0); opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { transform: translateY(40px); opacity: 0; } }
+            .toast-container { position: fixed; top: 24px; right: 24px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
+            .toast { padding: 14px 20px; border-radius: 12px; font-size: 13px; font-weight: 600; color: #e8ecf4; display: flex; align-items: center; gap: 12px; box-shadow: 0 8px 30px rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.1); backdrop-filter: blur(12px); animation: slideIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); pointer-events: auto; }
+            .toast.success { border-bottom: 3px solid #00c853; background: rgba(0,200,83,0.15); border: 1px solid rgba(0,200,83,0.3); }
+            .toast.error { border-bottom: 3px solid #ff1744; background: rgba(255,23,68,0.15); border: 1px solid rgba(255,23,68,0.3); }
+            @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
             `}} />
 
             <div className="flex items-center justify-between pb-2">
@@ -489,17 +615,16 @@ export function VehicleModule() {
                     <div className="upload-zone" id="drop-zone" onClick={() => fileRef.current?.click()}>
                         {singleStatus === 'idle' || singleStatus === 'complete' ? (
                             <>
-                                <div className="scan-line" id="scan-anim"></div>
-                                <div className="upload-icon">
-                                    <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-                                        <rect x="8" y="4" width="28" height="36" rx="4" stroke="#00c2cb" strokeWidth="1.5" />
-                                        <rect x="12" y="4" width="28" height="36" rx="4" stroke="#00c2cb" strokeWidth="1" opacity="0.4" />
-                                        <line x1="14" y1="16" x2="30" y2="16" stroke="#00c2cb" strokeWidth="1" opacity="0.6" />
-                                        <line x1="14" y1="22" x2="30" y2="22" stroke="#00c2cb" strokeWidth="1" opacity="0.6" />
-                                        <line x1="14" y1="28" x2="22" y2="28" stroke="#00c2cb" strokeWidth="1" opacity="0.6" />
-                                        <circle cx="36" cy="36" r="10" fill="#0a0d14" stroke="#00c2cb" strokeWidth="1.5" />
-                                        <line x1="36" y1="31" x2="36" y2="41" stroke="#00c2cb" strokeWidth="1.5" strokeLinecap="round" />
-                                        <line x1="31" y1="36" x2="41" y2="36" stroke="#00c2cb" strokeWidth="1.5" strokeLinecap="round" />
+                                <div className="empty-state" style={{ padding: '20px 0', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                                    <svg width="80" height="80" viewBox="0 0 80 80" fill="none">
+                                        <rect x="16" y="8" width="44" height="56" rx="6" stroke="#1e2535" strokeWidth="2" />
+                                        <rect x="20" y="8" width="44" height="56" rx="6" stroke="#2d3748" strokeWidth="1.5" />
+                                        <line x1="28" y1="28" x2="52" y2="28" stroke="#1e2535" strokeWidth="2" />
+                                        <line x1="28" y1="36" x2="52" y2="36" stroke="#1e2535" strokeWidth="2" />
+                                        <line x1="28" y1="44" x2="44" y2="44" stroke="#1e2535" strokeWidth="2" />
+                                        <rect x="22" y="20" width="36" height="2" rx="1" fill="rgba(0,194,203,0.5)" style={{ animation: 'scanDoc 2s ease-in-out infinite' }} />
+                                        <circle cx="60" cy="58" r="14" fill="#080c14" stroke="#00c2cb" strokeWidth="1.5" />
+                                        <path d="M55 58 L59 62 L65 54" stroke="#00c2cb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                                     </svg>
                                 </div>
                                 <p className="upload-title">{uploadedFile && singleStatus === 'complete' ? `Analyzed: ${uploadedFile.name}` : "Drop vehicle document here"}</p>
@@ -507,7 +632,17 @@ export function VehicleModule() {
                                 <button className="upload-btn">Select File</button>
                             </>
                         ) : (
-                            <div className="py-8"><Loader2 className="w-12 h-12 text-[#00c2cb] animate-spin mx-auto mb-4" /><p className="upload-title text-[#e8ecf4]">Processing Document...</p></div>
+                            <div className="live-scan py-8 flex flex-col items-center">
+                                <div className="relative">
+                                    <div className="scan-line-progress" style={{ width: '200px', height: '4px', background: '#1e2535', borderRadius: '4px', overflow: 'hidden' }}>
+                                        <div className="fill" style={{ width: `${Math.round((checkpoints.filter(c => c.status === 'pass' || c.status === 'fail').length / checkpoints.length) * 100)}%`, height: '100%', background: '#00c2cb', transition: 'width 0.3s ease' }}></div>
+                                    </div>
+                                    <div className="scan-flare absolute top-1/2 -ml-[25px]" style={{ left: `${Math.round((checkpoints.filter(c => c.status === 'pass' || c.status === 'fail').length / checkpoints.length) * 100)}%`, width: '50px', height: '30px', background: 'radial-gradient(ellipse at center, rgba(0,194,203,0.8) 0%, transparent 70%)', transform: 'translateY(-50%)' }}></div>
+                                </div>
+                                <p className="upload-title text-[#e8ecf4] mt-6 tracking-[1px] text-[11px] uppercase font-bold text-[#00c2cb]">
+                                    {checkpoints.find(c => c.status === 'processing')?.label || checkpoints.find(c => c.status === 'pending')?.label || 'FINALIZATION'}...
+                                </p>
+                            </div>
                         )}
                         <input ref={fileRef} type="file" className="hidden" accept=".pdf,.png,.jpg,.jpeg,.tiff,.webp,.bmp" onChange={e => { const f = e.target.files?.[0]; if (f) runSinglePipeline(f); e.target.value = ''; }} />
                     </div>
@@ -558,22 +693,28 @@ export function VehicleModule() {
 
                                     {(singleResult.status !== 'skipped' && singleResult.status !== 'error') && (
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                            <div className="data-card">
-                                                <div className="data-card-label">CHASSIS / VIN</div>
-                                                <div className={`data-card-value ${singleResult.chassis?.is_valid === false ? 'invalid-value' : ''}`}>{singleResult.chassis?.value || 'Not Detected'}</div>
-                                                <div className="data-card-meta">
-                                                    {singleResult.chassis?.value && <span className="meta-badge">{(singleResult.chassis.value ? singleResult.chassis.value.length : 0)} chars</span>}
-                                                    {singleResult.chassis?.manufacturer && <span className="meta-badge manufacturer">{singleResult.chassis.manufacturer}</span>}
-                                                    {singleResult.chassis?.checksum !== undefined && <span className={`meta-badge ${singleResult.chassis.checksum ? 'checksum-pass' : 'checksum-fail'}`}>{singleResult.chassis.checksum ? 'CSUM PASS' : 'CSUM FAIL'}</span>}
+                                            <div className="data-card" style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
+                                                <div className="flex-1">
+                                                    <div className="data-card-label">CHASSIS / VIN</div>
+                                                    <div className={`data-card-value ${singleResult.chassis?.is_valid === false ? 'invalid-value' : ''}`}>{renderChassisValue(singleResult.chassis?.value || null)}</div>
+                                                    <div className="data-card-meta">
+                                                        {singleResult.chassis?.value && <span className="meta-badge">{(singleResult.chassis.value ? singleResult.chassis.value.length : 0)} chars</span>}
+                                                        {singleResult.chassis?.manufacturer && <span className="meta-badge manufacturer">{singleResult.chassis.manufacturer}</span>}
+                                                        {singleResult.chassis?.checksum !== undefined && <span className={`meta-badge ${singleResult.chassis.checksum ? 'checksum-pass' : 'checksum-fail'}`}>{singleResult.chassis.checksum ? 'CSUM PASS' : 'CSUM FAIL'}</span>}
+                                                    </div>
+                                                    {singleResult.chassis?.is_valid === false && <div className="mt-3 text-[#ff1744] text-xs font-mono font-bold">REASON: {singleResult.chassis?.rejection_reason}</div>}
                                                 </div>
-                                                {singleResult.chassis?.is_valid === false && <div className="mt-3 text-[#ff1744] text-xs font-mono font-bold">REASON: {singleResult.chassis?.rejection_reason}</div>}
+                                                {(singleResult.chassis?.confidence ?? 0) > 0 && <ConfidenceRing value={singleResult.chassis?.confidence ?? 0} label="CHASSIS" color={(singleResult.chassis?.confidence ?? 0) > 80 ? '#00c853' : (singleResult.chassis?.confidence ?? 0) > 50 ? '#ffab00' : '#ff1744'} />}
                                             </div>
-                                            <div className="data-card">
-                                                <div className="data-card-label">REGISTRATION</div>
-                                                <div className="data-card-value">{singleResult.registration?.value || 'Not Detected'}</div>
-                                                <div className="data-card-meta">
-                                                    {singleResult.registration?.state && <span className="meta-badge state">{singleResult.registration.state}</span>}
+                                            <div className="data-card" style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
+                                                <div className="flex-1">
+                                                    <div className="data-card-label">REGISTRATION</div>
+                                                    <div className="data-card-value">{renderRegValue(singleResult.registration?.value || null)}</div>
+                                                    <div className="data-card-meta">
+                                                        {singleResult.registration?.state && <span className="meta-badge state">{singleResult.registration.state}</span>}
+                                                    </div>
                                                 </div>
+                                                {(singleResult.registration?.confidence ?? 0) > 0 && <ConfidenceRing value={singleResult.registration?.confidence ?? 0} label="REG" color={(singleResult.registration?.confidence ?? 0) > 80 ? '#00c853' : (singleResult.registration?.confidence ?? 0) > 50 ? '#ffab00' : '#ff1744'} />}
                                             </div>
                                         </div>
                                     )}
@@ -823,6 +964,14 @@ export function VehicleModule() {
                     )}
                 </div>
             )}
+            <div className="toast-container">
+                {toasts.map(t => (
+                    <div key={t.id} className={`toast ${t.type}`}>
+                        {t.type === 'success' ? <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#00c853" strokeWidth="3"><path d="M20 6L9 17l-5-5" strokeLinecap="round" strokeLinejoin="round" /></svg> : <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ff1744" strokeWidth="3"><path d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+                        {t.msg}
+                    </div>
+                ))}
+            </div>
         </div>
     );
 }

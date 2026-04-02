@@ -2,14 +2,91 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { ThemeSwitcher } from "@/components/ui/ThemeSwitcher";
 import { cn } from "@/lib/utils";
-import { Shield, Activity, FileText, Clipboard, BarChart, Settings as SettingsIcon, LogOut } from "lucide-react";
+import { Shield, Activity, FileText, Clipboard, BarChart, Settings as SettingsIcon, LogOut, Search, X } from "lucide-react";
+
+function CommandPalette({ open, setOpen, router }: { open: boolean, setOpen: any, router: any }) {
+    const inputRef = useRef<HTMLInputElement>(null);
+    const [query, setQuery] = useState("");
+    const [selIdx, setSelIdx] = useState(0);
+    const actions = [
+        { label: 'Analytics Dashboard', path: '/dashboard/reports', icon: <BarChart className="w-4 h-4" /> },
+        { label: 'Document Analysis (Live Scan)', path: '/dashboard/analysis', icon: <FileText className="w-4 h-4" /> },
+        { label: 'Threat Intelligence', path: '/dashboard', icon: <Activity className="w-4 h-4" /> },
+        { label: 'Audit Logs', path: '/dashboard/audit-logs', icon: <Clipboard className="w-4 h-4" /> },
+        { label: 'System Settings', path: '/dashboard/settings', icon: <SettingsIcon className="w-4 h-4" /> },
+    ];
+    const filtered = actions.filter(a => a.label.toLowerCase().includes(query.toLowerCase()));
+
+    useEffect(() => { setSelIdx(0); }, [query]);
+
+    useEffect(() => {
+        if (open) setTimeout(() => inputRef.current?.focus(), 50);
+        else setQuery("");
+    }, [open]);
+
+    useEffect(() => {
+        const handleDown = (e: KeyboardEvent) => {
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+                e.preventDefault();
+                setOpen((o: boolean) => !o);
+            }
+            if (!open) return;
+            if (e.key === 'Escape') setOpen(false);
+            if (e.key === 'ArrowDown') { e.preventDefault(); setSelIdx(s => (s + 1) % (filtered.length || 1)); }
+            if (e.key === 'ArrowUp') { e.preventDefault(); setSelIdx(s => (s - 1 + filtered.length) % (filtered.length || 1)); }
+            if (e.key === 'Enter') { e.preventDefault(); if (filtered[selIdx]) { router.push(filtered[selIdx].path); setOpen(false); } }
+        };
+        window.addEventListener('keydown', handleDown);
+        return () => window.removeEventListener('keydown', handleDown);
+    }, [open, setOpen, filtered, selIdx, router]);
+
+    if (!open) return null;
+
+    return (
+        <div className="fixed inset-0 z-[999] bg-black/60 backdrop-blur-sm flex items-start justify-center pt-[15vh]">
+            <div className="bg-[#10131c] border border-[#1e2535] rounded-xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] w-full max-w-[600px] overflow-hidden transform transition-all flex flex-col" style={{ animation: 'paletteIn 0.2s cubic-bezier(0.16, 1, 0.3, 1)', maxHeight: '70vh' }}>
+                <div className="flex items-center px-4 py-3 border-b border-[#1e2535]">
+                    <Search className="w-5 h-5 text-[#00c2cb]" />
+                    <input ref={inputRef} value={query} onChange={e => setQuery(e.target.value)} className="flex-1 bg-transparent border-none text-[#e8ecf4] px-4 py-2 focus:outline-none placeholder:text-[#4a5568] focus:ring-0" placeholder="Type a command or search..." />
+                    <button onClick={() => setOpen(false)} className="p-1 rounded hover:bg-[#1e2535] text-[#4a5568]"><X className="w-5 h-5" /></button>
+                </div>
+                <div className="overflow-y-auto p-2 flex-1 relative">
+                    {filtered.length === 0 ? (
+                        <div className="p-8 text-center text-[#4a5568] text-sm">No results found for "{query}".</div>
+                    ) : (
+                        filtered.map((action, i) => (
+                            <button key={action.path} onClick={() => { router.push(action.path); setOpen(false); }} onMouseEnter={() => setSelIdx(i)} className={`w-full flex items-center justify-between p-3 rounded-lg group transition-colors text-left ${i === selIdx ? 'bg-[#1e2535]' : 'hover:bg-[#1a1f30]'}`}>
+                                <div className="flex items-center gap-3">
+                                    <div className={i === selIdx ? "text-[#00c2cb]" : "text-[#4a5568]"}>{action.icon}</div>
+                                    <span className={i === selIdx ? "text-[#00c2cb] text-sm font-bold" : "text-[#e8ecf4] text-sm font-medium"}>{action.label}</span>
+                                </div>
+                                <span className={`text-[10px] uppercase font-bold text-[#00c2cb] transition-opacity ${i === selIdx ? 'opacity-100' : 'opacity-0'}`}>Jump ⏎</span>
+                            </button>
+                        ))
+                    )}
+                </div>
+                <div className="p-3 bg-[#0a0d14] border-t border-[#1e2535] flex justify-between items-center text-[10px] text-[#4a5568] shrink-0">
+                    <span><kbd className="bg-[#1e2535] px-1.5 py-0.5 rounded mr-1 leading-none font-sans border border-[#2d3748]">↑↓</kbd> to navigate</span>
+                    <span><kbd className="bg-[#1e2535] px-1.5 py-0.5 rounded mr-1 leading-none font-sans border border-[#2d3748]">⏎</kbd> to select</span>
+                    <span><kbd className="bg-[#1e2535] px-1.5 py-0.5 rounded mr-1 leading-none font-sans border border-[#2d3748]">esc</kbd> to close</span>
+                </div>
+                <style dangerouslySetInnerHTML={{
+                    __html: `
+                    @keyframes paletteIn { from { opacity: 0; transform: scale(0.95) translateY(-10px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+                `}} />
+            </div>
+            <div className="absolute inset-0 -z-10" onClick={() => setOpen(false)} />
+        </div>
+    );
+}
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
     const pathname = usePathname();
     const [user, setUser] = useState<any>(null);
+    const [cmdOpen, setCmdOpen] = useState(false);
 
     const router = useRouter();
 
@@ -30,7 +107,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         { name: "Threat Intelligence", icon: <Activity className="w-4 h-4" />, path: "/dashboard" },
         { name: "Document Analysis", icon: <FileText className="w-4 h-4" />, path: "/dashboard/analysis" },
         { name: "Audit Logs", icon: <Clipboard className="w-4 h-4" />, path: "/dashboard/audit-logs" },
-        { name: "Reports", icon: <BarChart className="w-4 h-4" />, path: "/dashboard/reports" },
+        { name: "Dashboard", icon: <BarChart className="w-4 h-4" />, path: "/dashboard/reports" },
         { name: "Settings", icon: <SettingsIcon className="w-4 h-4" />, path: "/dashboard/settings" },
     ];
 
@@ -102,8 +179,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     </div>
                     <div className="flex items-center gap-4">
                         <div className="relative hidden md:block">
-                            <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-lg">search</span>
-                            <input className="pl-10 pr-4 py-1.5 bg-muted border-none rounded-full text-xs focus:ring-2 focus:ring-primary w-64" placeholder="Quick search..." type="text" />
+                            <button onClick={() => setCmdOpen(true)} className="flex items-center justify-between w-64 px-4 py-2 bg-[#10131c] border border-[#1e2535] rounded-full text-xs text-[#4a5568] hover:border-[#00c2cb] hover:text-[#e8ecf4] transition-colors focus:outline-none">
+                                <span className="flex items-center gap-2"><Search className="w-3.5 h-3.5" /> Quick search...</span>
+                                <kbd className="hidden sm:inline-block bg-[#1e2535] px-1.5 py-0.5 rounded text-[10px] font-sans font-semibold border border-[#2d3748]">Ctrl K</kbd>
+                            </button>
                         </div>
                         <button className="w-10 h-10 flex items-center justify-center rounded-full bg-muted text-card-foreground hover:bg-accent relative transition-colors">
                             <span className="material-symbols-outlined">notifications</span>
@@ -113,6 +192,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 </header>
 
                 <div className="flex-1 overflow-y-auto">
+                    <CommandPalette open={cmdOpen} setOpen={setCmdOpen} router={router} />
                     {children}
 
                     <footer className="mt-auto py-6 px-8 border-t border-border flex justify-between items-center bg-card shrink-0">
