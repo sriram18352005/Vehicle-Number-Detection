@@ -386,21 +386,55 @@ def fuse_forensic_signals(
       "ML Class Prob": ml_result.get("ml_score", 0.0),
       "Reason List": [a["message"] for a in all_anomalies] if all_anomalies else ["No anomalies detected"],
       "Fraud Indicators": ui_indicators,
-      "Extracted Text": {
-            "Document Name": extracted_data.get("bank_brand") or ("PAN Card" if id_type == "PAN" else "Document"),
-            "Document Type": id_type,
-            "Account / ID": extracted_data.get("account_number") or extracted_data.get("id_number") or extracted_data.get("pan_number") or "Not detected",
-            "Customer Name": extracted_data.get("name") or extracted_data.get("account_name") or "Not detected",
-            "Father's Name": extracted_data.get("father_name") or "Not detected",
-            "Date of Birth": extracted_data.get("dob") or "Not detected",
-            "Gender": extracted_data.get("gender") or "Not detected",
-            "Photo Detected": extracted_data.get("photo_detected") or "Not detected",
-            "Signature Detected": extracted_data.get("signature_detected") or "Not detected",
-            "QR Detected": extracted_data.get("qr_detected") or "Not detected",
-            "Emblem Detected": extracted_data.get("emblem_detected") or "Not detected",
-            "Issuing Authority": extracted_data.get("issuing_authority") or "Not detected",
-            "Full Text Preview": (extracted_data.get("text") or "Not detected")[:5000]
-      },
+      "Extracted Text": (
+          {
+              # ── BANK STATEMENT FIELDS ──────────────────────────────────────────
+              "Document Name": extracted_data.get("bank_brand", "Unknown Bank"),
+              "Document Type": id_type,
+              "Account / ID": extracted_data.get("account_number") or "Not detected",
+              "Account Holder": (
+                  extracted_data.get("account_name") or
+                  extracted_data.get("name") or "Not detected"
+              ),
+              "IFSC Code": extracted_data.get("ifsc") or "Not detected",
+              "Branch": extracted_data.get("branch") or "Not detected",
+              "Statement Period": extracted_data.get("period") or "Current Cycle",
+              "CIF / CRN Number": (
+                  extracted_data.get("cif") or
+                  extracted_data.get("crn") or "Not detected"
+              ),
+              "Opening Balance": str(extracted_data.get("opening_balance", "")) or "Not detected",
+              "Closing Balance": str(extracted_data.get("closing_balance", "")) or "Not detected",
+              "Total Transactions": str(len(extracted_data.get("transactions", []))),
+              "Full Text Preview": (extracted_data.get("text") or "Not detected")[:5000],
+          }
+          if id_type == "BANK_STATEMENT"
+          else {
+              # ── IDENTITY DOCUMENT FIELDS ────────────────────────────────────────
+              "Document Name": (
+                  "PAN Card" if id_type == "PAN"
+                  else extracted_data.get("bank_brand", "Document")
+              ),
+              "Document Type": id_type,
+              "Account / ID": (
+                  extracted_data.get("id_number") or
+                  extracted_data.get("pan_number") or "Not detected"
+              ),
+              "Customer Name": (
+                  extracted_data.get("name") or
+                  extracted_data.get("account_name") or "Not detected"
+              ),
+              "Father's Name": extracted_data.get("father_name") or "Not detected",
+              "Date of Birth": extracted_data.get("dob") or "Not detected",
+              "Gender": extracted_data.get("gender") or "Not detected",
+              "Photo Detected": extracted_data.get("photo_detected") or "Not detected",
+              "Signature Detected": extracted_data.get("signature_detected") or "Not detected",
+              "QR Detected": extracted_data.get("qr_detected") or "Not detected",
+              "Emblem Detected": extracted_data.get("emblem_detected") or "Not detected",
+              "Issuing Authority": extracted_data.get("issuing_authority") or "Not detected",
+              "Full Text Preview": (extracted_data.get("text") or "Not detected")[:5000],
+          }
+      ),
       "BoundingBoxes": field_detections or [],
       "checkpoints": scoring_result.get("checkpoints", []),
       "extracted_fields": extracted_data or {},

@@ -81,11 +81,16 @@ export function DocumentUpload({
     }, [onFileSelect, onSetMaster, mode]);
 
     const handleFolderInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-        const files = Array.from(e.target.files || []);
+        const files = Array.from(e.target.files || []).filter(f =>
+            f.type.startsWith("image/") || f.type === "application/pdf"
+        );
         if (files.length > 0) {
             setIsFolderUpload(true);
+            setSelectedFile(null);
             onFolderSelect?.(files);
         }
+        // Reset so the same folder can be re-selected
+        e.target.value = "";
     }, [onFolderSelect]);
 
     const clearFile = useCallback(() => {
@@ -307,11 +312,11 @@ export function DocumentUpload({
                         {isBankSelected && mode !== "master" && (
                             <input
                                 type="file"
-                                // @ts-ignore
-                                webkitdirectory=""
-                                directory=""
+                                multiple
+                                {...({ webkitdirectory: "true", directory: "true" } as any)}
                                 onChange={handleFolderInput}
                                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                accept=".pdf,image/*"
                             />
                         )}
                         <div className="flex flex-col items-center gap-2 text-center">

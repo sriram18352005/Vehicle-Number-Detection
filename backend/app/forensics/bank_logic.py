@@ -37,13 +37,14 @@ class BankProfiler:
             "TAMPERING_FONT": 0.15
         },
         "KOTAK": {
-            "ACC_ADDRESS": 0.15,
-            "ACC_CIF": 0.15,
-            "STMT_PERIOD": 0.10,
-            "TABLE_STRUCTURE": 0.20,
-            "MATH_ACCURACY": 0.20,
-            "SUMMARY_CROSS": 0.10,
-            "METADATA_TAMPERING": 0.10
+            "NAME_VERIFICATION":  15,
+            "ACC_CRN":            15,
+            "IFSC_VALIDATION":    10,
+            "STMT_PERIOD":        10,
+            "TABLE_STRUCTURE":    20,
+            "MATH_ACCURACY":      20,
+            "SUMMARY_CROSS":      10,
+            "PDF_INTEGRITY":      10
         },
         "ICICI": {
             "NAME_EXTRACTION": 0.15,
@@ -694,6 +695,7 @@ class BankLogic:
                 "weight": 0,
                 "contribution": 0,
                 "reason": "Names must exactly match Bank Records / Master Template" if not name_pass else "Name verified",
+                "detected_value": metadata.get("account_name") or "Not detected",
                 **get_field_info(metadata.get("account_name"))
             })
             
@@ -727,6 +729,7 @@ class BankLogic:
                 "weight": 0,
                 "contribution": 0,
                 "reason": "Must be 11-17 numeric digits located near Account Label" if not acc_format_pass else "Format verified near label",
+                "detected_value": acc_num_val or "Not detected",
                 **get_field_info(acc_num_val if acc_num_val else "Account Number")
             })
             
@@ -747,6 +750,7 @@ class BankLogic:
                 "weight": 0,
                 "contribution": 0,
                 "reason": "Must match SBIN followed by 7 digits" if not ifsc_pass else "IFSC verified",
+                "detected_value": ifsc_val or "Not detected",
                 **get_field_info(ifsc_val if ifsc_val else "IFSC")
             })
             
@@ -759,6 +763,10 @@ class BankLogic:
                 "status": "PASSED" if period_pass else "FAILED",
                 "weight": 0,
                 "contribution": 0,
+                "reason": "Statement period validated" if period_pass else "Statement period not detected",
+                "detected_value": (lambda m: f"{m.group(1)} to {m.group(2)}" if m else "Not detected")(
+                    re.search(r'(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})\s*(?:TO|to|-)\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})', text)
+                ),
                 **get_field_info("PERIOD")
             })
 
@@ -789,6 +797,7 @@ class BankLogic:
                 "weight": 0,
                 "contribution": 0,
                 "reason": structural_reason,
+                "detected_value": "Master template matched" if master_data and structural_pass else ("No master template set" if not master_data else "Structural mismatch detected"),
                 "bbox": master_anom_box,
                 "page": 0
             })
@@ -820,6 +829,7 @@ class BankLogic:
                 "weight": 0,
                 "contribution": 0,
                 "reason": balance_reason,
+                "detected_value": f"Row {mismatch_details.get('row', '?')}: mismatch" if mismatch_details else f"{len(transactions)} rows verified",
                 "bbox": mismatch_details.get("bbox", [250, 700, 800, 980]) if mismatch_details else [250, 700, 800, 980],
                 "page": mismatch_details.get("page", 0) if mismatch_details else 0
             })
@@ -833,6 +843,8 @@ class BankLogic:
                 "status": "PASSED" if seq_pass else "FAILED",
                 "weight": 0,
                 "contribution": 0,
+                "reason": "Transaction dates are in chronological order" if seq_pass else "Date sequence violation detected",
+                "detected_value": f"{len(transactions)} transactions in order" if seq_pass else "Sequence violation detected",
                 "bbox": seq_anom.get("bbox", [100, 10, 900, 100]) if seq_anom else [100, 10, 900, 100],
                 "page": seq_anom.get("page", 0) if seq_anom else 0
             })
@@ -852,6 +864,7 @@ class BankLogic:
                 "weight": 15,
                 "contribution": 0,
                 "reason": f"Valid name detected: {detected_name_axis}" if name_pass else "Name missing, corrupted, or contains invalid characters (uppercase only)",
+                "detected_value": detected_name_axis or "Not detected",
                 **get_field_info(detected_name_axis if detected_name_axis else metadata.get("account_name"))
             })
 
@@ -875,6 +888,7 @@ class BankLogic:
                 "weight": 15,
                 "contribution": 0,
                 "reason": f"Account number found: {acc_num_val}" if acc_result else "Account number missing or invalid format (12-16 digits)",
+                "detected_value": acc_num_val or "Not detected",
                 **get_field_info(acc_num_val if acc_num_val else "ACCOUNT NO")
             })
 
@@ -889,6 +903,7 @@ class BankLogic:
                 "weight": 10,
                 "contribution": 0,
                 "reason": f"Valid Axis IFSC found: {ifsc_val}" if ifsc_result else "Axis IFSC (UTIB0 + 6 digits) not detected",
+                "detected_value": ifsc_val or "Not detected",
                 **get_field_info(ifsc_val if ifsc_val else "UTIB0")
             })
 
@@ -906,6 +921,7 @@ class BankLogic:
                 "weight": 15,
                 "contribution": 0,
                 "reason": f"All Axis structural keywords verified" if master_pass else f"Missing structural markers: {set(header_keywords) - set(found_headers)}",
+                "detected_value": f"{len(found_headers)} of {len(header_keywords)} headers found",
                 **get_field_info("AXIS BANK")
             })
 
@@ -920,6 +936,7 @@ class BankLogic:
                 "weight": 15,
                 "contribution": 0,
                 "reason": f"Detected {len(found_cols)} Axis columns: {', '.join(found_cols)}" if table_result else "Transaction structure missing or recognized (5+ cols required)",
+                "detected_value": f"{len(found_cols)} columns: {', '.join(found_cols)}",
                 "bbox": [200, 10, 850, 990], "page": 0
             })
 
@@ -933,6 +950,7 @@ class BankLogic:
                 "weight": 20,
                 "contribution": 0,
                 "reason": "All transaction balances are mathematically consistent (Prev + Credit - Debit = Current)" if balance_result else "Balance calculation mismatch detected",
+                "detected_value": f"{len(transactions)} transactions checked",
                 "bbox": math_anom.get("bbox", [250, 700, 800, 980]),
                 "page": math_anom.get("page", 0)
             })
@@ -947,6 +965,7 @@ class BankLogic:
                 "weight": 10,
                 "contribution": 0,
                 "reason": "Transactions are in ascending chronological order" if chrono_result else "Date sequence violation detected",
+                "detected_value": "Chronological" if chrono_result else "Violation found",
                 "bbox": chrono_anom.get("bbox", [100, 10, 900, 100]),
                 "page": chrono_anom.get("page", 0)
             })
@@ -1122,41 +1141,117 @@ class BankLogic:
 
 
         elif bank_brand == "KOTAK":
-            detected_name_kotak = BankLogic.extract_name_above_address(text_lines, text)
-            name_anom_kotak = next((a for a in anomalies if a.get("type") == "NAME_MISMATCH"), None)
-            name_result_kotak = 1.0 if not name_anom_kotak and detected_name_kotak else 0.0
-            
+            # ─────────────────────────────────────────────────────────
+            # KOTAK 8-CHECKPOINT PIPELINE (STEP 1 bank detection already did KOTAK match)
+            # ─────────────────────────────────────────────────────────
+
+            # ── CP1. Header Validation [HIGH] ─────────────────────────
+            has_kotak_name = bool(re.search(r'(?i)KOTAK[\s]*MAHINDRA[\s]*BANK', text))
+            has_kotak_stmt = bool(re.search(r'(?i)Account\s*Statement|Statement\s*(of)?\s*Account', text))
+            cp1_kotak = 1.0 if (has_kotak_name and has_kotak_stmt) else (0.5 if has_kotak_name else 0.0)
             checkpoint_results.append({
-                "name": "Account Holder & Address Block", "weight": 15, 
-                "result": name_result_kotak,
-                "status": "PASSED" if name_result_kotak >= 1.0 else "FAILED",
-                "reason": f"Name detected: {detected_name_kotak}" if detected_name_kotak else "Account holder or address block not verified",
-                **get_field_info(detected_name_kotak if detected_name_kotak else "CRN")
+                "name": "Header Validation", "priority": "HIGH", "weight": 10, "result": cp1_kotak,
+                "reason": "Bank name and statement label verified" if cp1_kotak == 1.0 else ("Bank name found, statement label missing" if cp1_kotak == 0.5 else "Bank name absent"),
+                "detected_value": "Kotak Mahindra Bank"
             })
+
+            # ── CP2. Account Details Block [CRITICAL] ─────────────────
+            # Sub-A: Name
+            k_name = BankLogic.extract_name_above_address(text_lines, text)
+            sub_a = "PASSED" if k_name and re.match(r'^[A-Z\s.]{3,60}$', k_name.upper()) else "FAILED"
+            # Sub-B: Account Number (12–16 digits)
+            k_acc_m = re.search(r'\b(\d{12,16})\b', text)
+            k_acc = k_acc_m.group(1) if k_acc_m else ""
+            sub_b = "PASSED" if k_acc else ("WARNING" if re.search(r'\b\d{10,11}\b|\b\d{17,18}\b', text) else "FAILED")
+            # Sub-C: IFSC (KKBK0 + 6 digits)
+            k_ifsc_m = re.search(r'(?i)KKBK0\d{6}', text)
+            k_ifsc = k_ifsc_m.group(0).upper() if k_ifsc_m else ""
+            sub_c = "PASSED" if k_ifsc else ("WARNING" if re.search(r'(?i)KKBK[O0\s]', text) else "FAILED")
+            # Overall
+            sub_statuses = [sub_a, sub_b, sub_c]
+            cp2_kotak = "PASSED" if all(s == "PASSED" for s in sub_statuses) else ("FAILED" if "FAILED" in sub_statuses else "WARNING")
             checkpoint_results.append({
-                "name": "Acc Number & CIF Check", "weight": 15, 
-                "result": 1.0 if not has_anomaly("ACCOUNT_LENGTH_INVALID") else 0.0,
-                **get_field_info(metadata.get("account_number"))
+                "name": "Account Details Block", "priority": "CRITICAL", "weight": 20,
+                "result": 1.0 if cp2_kotak == "PASSED" else (0.5 if cp2_kotak == "WARNING" else 0.0),
+                "status": cp2_kotak,
+                "sub_checks": [
+                    {"name": "Sub-check A — Account Holder Name", "status": sub_a, "detail": k_name or "Not detected"},
+                    {"name": "Sub-check B — Account Number",      "status": sub_b, "detail": f"{k_acc} (Len: {len(k_acc)})" if k_acc else "Not detected"},
+                    {"name": "Sub-check C — IFSC Code",           "status": sub_c, "detail": k_ifsc or "Not detected"}
+                ],
+                "reason": "Account details block verified" if cp2_kotak == "PASSED" else "Issues in account details block",
+                "detected_value": k_acc or k_name or "—"
             })
+            # IMMEDIATE FAKE triggers
+            if sub_a == "FAILED":
+                return BankLogic.finalize_fake(checkpoint_results, "Account Holder Name missing (CRITICAL)", "KOTAK")
+            if sub_b == "FAILED":
+                return BankLogic.finalize_fake(checkpoint_results, "Account Number invalid (CRITICAL)", "KOTAK")
+
+            # ── CP3. Statement Period [NOT APPLICABLE for Kotak] ───────
             checkpoint_results.append({
-                "name": "Statement Period Validation", "weight": 10, 
-                "result": 1.0 if any(kw in text for kw in ["PERIOD", "STATEMENT"]) else 0.0,
-                **get_field_info("PERIOD")
+                "name": "Statement Period Check", "priority": "MEDIUM", "weight": 5, "result": 1.0,
+                "status": "NOT APPLICABLE",
+                "reason": "Kotak Bank — not applicable",
+                "detected_value": "—"
             })
+
+            # ── CP4. Transaction Table Structure [HIGH] ────────────────
+            k_cols = ["DATE", "NARRATION", "DEBIT", "CREDIT", "BALANCE"]
+            found_k_cols = [c for c in k_cols if c in text.upper()]
+            cp4_kotak = 1.0 if len(found_k_cols) >= 3 else (0.5 if len(found_k_cols) == 2 else 0.0)
+            if not transactions: cp4_kotak = 0.0
             checkpoint_results.append({
-                "name": "Transaction Structure", "weight": 20, 
-                "result": 1.0 if not has_anomaly("NO_TRANSACTIONS_DETECTED") else 0.0,
-                "bbox": [200, 10, 850, 990], "page": 0
+                "name": "Transaction Table Structure", "priority": "HIGH", "weight": 10, "result": cp4_kotak,
+                "reason": f"{len(found_k_cols)} columns: {', '.join(found_k_cols)}" if cp4_kotak > 0 else "Insufficient columns",
+                "detected_value": f"{len(found_k_cols)} cols"
             })
-            math_anom = next((a for a in anomalies if a.get("indicator") == "Math Mismatch"), {})
+
+            # ── CP5. Date Format Consistency [MEDIUM] ──────────────────
+            k_dates = re.findall(r'\b\d{2}-[a-zA-Z]{3}-\d{4}\b', text)
+            k_other = re.findall(r'\b\d{2}[-/]\d{2}[-/]\d{4}\b', text)
+            cp5_kotak = 1.0 if (len(k_dates) > 0 and len(k_other) == 0) else (0.5 if (len(k_dates) > 0 and len(k_other) <= 2) else 0.0)
             checkpoint_results.append({
-                "name": "Math Accuracy", "weight": 20, 
-                "result": 1.0 if not math_anom else 0.0,
-                "bbox": math_anom.get("bbox", [250, 700, 800, 980]),
-                "page": math_anom.get("page", 0)
+                "name": "Date Format Consistency", "priority": "MEDIUM", "weight": 5, "result": cp5_kotak,
+                "reason": "Consistent DD-MMM-YYYY" if cp5_kotak == 1.0 else ("Mostly consistent, minor deviations" if cp5_kotak == 0.5 else "Wrong/no date format"),
+                "detected_value": "DD-MMM-YYYY" if cp5_kotak >= 1.0 else (f"{len(k_dates)} found" if k_dates else "None")
             })
-            checkpoint_results.append({"name": "Summary Cross-Verification", "weight": 10, "result": 1.0}) # Simplified
-            checkpoint_results.append({"name": "PDF Integrity Check", "weight": 10, "result": 1.0 if not has_indicator("Metadata Tampering") else 0.0})
+
+            # ── CP6. Balance Consistency Check [CRITICAL] ──────────────
+            k_math_anoms = [a for a in anomalies if a.get("indicator") == "Math Mismatch"]
+            cp6_kotak_result = 1.0 if len(k_math_anoms) == 0 and transactions else (0.5 if len(k_math_anoms) <= 2 else 0.0)
+            if not transactions: cp6_kotak_result = 0.0
+            checkpoint_results.append({
+                "name": "Balance Consistency Check", "priority": "CRITICAL", "weight": 20, "result": cp6_kotak_result,
+                "reason": f"Verified {len(transactions)} rows" if cp6_kotak_result == 1.0 else (f"{len(k_math_anoms)} discrepancies" if cp6_kotak_result == 0.5 else "Math mismatch / No data"),
+                "detected_value": "Math OK" if cp6_kotak_result == 1.0 else "Math Fail",
+                "bbox": k_math_anoms[0].get("bbox", [250, 700, 800, 980]) if k_math_anoms else [250, 700, 800, 980],
+                "page": k_math_anoms[0].get("page", 0) if k_math_anoms else 0
+            })
+            if cp6_kotak_result == 0.0:
+                return BankLogic.finalize_fake(checkpoint_results, "Balance Consistency check failed (CRITICAL)", "KOTAK")
+
+            # ── CP7. Transaction Narration Pattern [MEDIUM] ────────────
+            k_kws = ["UPI", "IMPS", "NEFT", "POS", "ATM", "MB", "IB"]
+            k_kw_count = sum(1 for tx in transactions if any(kw in (str(tx.get('narration','')).upper() + str(tx.get('description','')).upper()) for kw in k_kws))
+            k_total = len(transactions)
+            cp7_kotak = 1.0 if (k_total > 0 and k_kw_count / k_total >= 0.4) else (0.5 if k_kw_count > 0 else 0.0)
+            checkpoint_results.append({
+                "name": "Transaction Narration Pattern", "priority": "MEDIUM", "weight": 5, "result": cp7_kotak,
+                "reason": f"Keywords found in {k_kw_count}/{k_total} rows" if k_total > 0 else "No transactions",
+                "detected_value": f"{k_kw_count}/{k_total}"
+            })
+
+            # ── CP8. Opening & Closing Balance [HIGH] ──────────────────
+            k_has_ob = bool(re.search(r'(?i)OPENING\s*BALANCE', text))
+            k_has_cb = bool(re.search(r'(?i)CLOSING\s*BALANCE', text))
+            k_total_mismatch = "TOTAL_MISMATCH" in str(anomalies)
+            cp8_kotak = 1.0 if (k_has_ob and k_has_cb and not k_total_mismatch) else (0.5 if (k_has_ob and k_has_cb) else 0.0)
+            checkpoint_results.append({
+                "name": "Opening and Closing Balance", "priority": "HIGH", "weight": 15, "result": cp8_kotak,
+                "reason": "Summary equation verified" if cp8_kotak == 1.0 else ("Balances present but equation mismatch" if cp8_kotak == 0.5 else "Missing summary balances"),
+                "detected_value": "Verified" if cp8_kotak == 1.0 else ("Partial" if cp8_kotak == 0.5 else "Missing")
+            })
 
         elif bank_brand == "ICICI":
             # ── 1. Header Identity Check ─────────────────────────────────────────
@@ -1319,94 +1414,184 @@ class BankLogic:
 
 
         elif bank_brand == "HDFC":
-            detected_name_hdfc = BankLogic.extract_name_above_address(text_lines, text)
-            name_anom_hdfc = next((a for a in anomalies if a.get("type") == "NAME_MISMATCH"), None)
-            name_result_hdfc = 1.0 if not name_anom_hdfc and detected_name_hdfc else 0.0
-            
+            # ─────────────────────────────────────────────────────────
+            # HDFC 8-CHECKPOINT PIPELINE
+            # ─────────────────────────────────────────────────────────
+
+            # ── CP1. Header Validation [HIGH] ─────────────────────────
+            has_hdfc_name = bool(re.search(r'(?i)HDFC[\s]*BANK', text))
+            has_hdfc_stmt = bool(re.search(r'(?i)Account\s*Statement', text))
+            cp1_hdfc = 1.0 if (has_hdfc_name and has_hdfc_stmt) else (0.5 if has_hdfc_name else 0.0)
             checkpoint_results.append({
-                "name": "Account Holder Name Detection", "weight": 15, 
-                "result": name_result_hdfc,
-                "status": "PASSED" if name_result_hdfc >= 1.0 else "FAILED",
-                "reason": f"Name detected: {detected_name_hdfc}" if detected_name_hdfc else "Account holder name not found",
-                **get_field_info(detected_name_hdfc if detected_name_hdfc else "CUSTOMER ID")
+                "name": "Header Validation", "priority": "HIGH", "weight": 10, "result": cp1_hdfc,
+                "reason": "Bank name and statement label verified" if cp1_hdfc == 1.0 else ("Bank name found, statement label missing" if cp1_hdfc == 0.5 else "Bank name absent"),
+                "detected_value": "HDFC Bank"
             })
+
+            # ── CP2. Account Details Block [CRITICAL] ─────────────────
+            # Sub-A: Name
+            h_name = BankLogic.extract_name_above_address(text_lines, text)
+            sub_a_h = "PASSED" if h_name and re.match(r'^[A-Z\s.]{3,60}$', h_name.upper()) else "FAILED"
+            # Sub-B: Account Number (10–14 digits)
+            h_acc_m = re.search(r'\b(\d{10,14})\b', text)
+            h_acc = h_acc_m.group(1) if h_acc_m else ""
+            sub_b_h = "PASSED" if (h_acc and h_acc.isdigit() and 10 <= len(h_acc) <= 14) else ("WARNING" if re.search(r'\b\d{9}\b|\b\d{15}\b', text) else "FAILED")
+            # Sub-C: IFSC (HDFC0 + 6 alphanumeric)
+            h_ifsc_m = re.search(r'(?i)HDFC0[0-9A-Z]{6}', text)
+            h_ifsc = h_ifsc_m.group(0).upper() if h_ifsc_m else ""
+            sub_c_h = "PASSED" if h_ifsc else ("WARNING" if re.search(r'(?i)HDFC[O0\s]', text) else "FAILED")
+            # Overall
+            h_sub_statuses = [sub_a_h, sub_b_h, sub_c_h]
+            cp2_hdfc = "PASSED" if all(s == "PASSED" for s in h_sub_statuses) else ("FAILED" if "FAILED" in h_sub_statuses else "WARNING")
             checkpoint_results.append({
-                "name": "Acc Number & IFSC Validation", "weight": 15, 
-                "result": 1.0 if not has_anomaly("ACCOUNT_LENGTH_INVALID") else 0.0,
-                **get_field_info(metadata.get("account_number"))
+                "name": "Account Details Block", "priority": "CRITICAL", "weight": 20,
+                "result": 1.0 if cp2_hdfc == "PASSED" else (0.5 if cp2_hdfc == "WARNING" else 0.0),
+                "status": cp2_hdfc,
+                "sub_checks": [
+                    {"name": "Sub-check A — Account Holder Name", "status": sub_a_h, "detail": h_name or "Not detected"},
+                    {"name": "Sub-check B — Account Number",      "status": sub_b_h, "detail": f"{h_acc} (Len: {len(h_acc)})" if h_acc else "Not detected"},
+                    {"name": "Sub-check C — IFSC Code",           "status": sub_c_h, "detail": h_ifsc or "Not detected"}
+                ],
+                "reason": "Account details block verified" if cp2_hdfc == "PASSED" else "Issues in account details block",
+                "detected_value": h_acc or h_name or "—"
             })
+            # IMMEDIATE FAKE triggers
+            if sub_a_h == "FAILED":
+                return BankLogic.finalize_fake(checkpoint_results, "Account Holder Name missing (CRITICAL)", "HDFC")
+            if sub_b_h == "FAILED":
+                return BankLogic.finalize_fake(checkpoint_results, "Account Number invalid (CRITICAL)", "HDFC")
+
+            # ── CP3. Statement Period Check [MEDIUM] ───────────────────
+            period_m = re.search(r'(\d{2}[-/]\d{2}[-/]\d{4}).*?(\d{2}[-/]\d{2}[-/]\d{4})', text)
+            cp3_hdfc = 1.0 if period_m else (0.5 if any(kw in text.upper() for kw in ["FROM", "TO", "PERIOD"]) else 0.0)
+            detected_period_h = f"{period_m.group(1)} - {period_m.group(2)}" if period_m else None
             checkpoint_results.append({
-                "name": "Statement Period Validation", "weight": 10, 
-                "result": 1.0 if any(kw in text for kw in ["PERIOD", "STATEMENT"]) else 0.0,
-                **get_field_info("PERIOD")
+                "name": "Statement Period Check", "priority": "MEDIUM", "weight": 5, "result": cp3_hdfc,
+                "reason": f"Period: {detected_period_h}" if cp3_hdfc == 1.0 else ("Partial dates" if cp3_hdfc == 0.5 else "Dates missing"),
+                "detected_value": detected_period_h or ("Partial" if cp3_hdfc == 0.5 else "Missing")
             })
+
+            # ── CP4. Transaction Table Structure [HIGH] ────────────────
+            h_cols = ["DATE", "NARRATION", "DEBIT", "CREDIT", "BALANCE"]
+            found_h_cols = [c for c in h_cols if c in text.upper()]
+            cp4_hdfc = 1.0 if len(found_h_cols) >= 4 else (0.5 if len(found_h_cols) == 3 else 0.0)
+            if not transactions: cp4_hdfc = 0.0
             checkpoint_results.append({
-                "name": "Column Structure Check", "weight": 20, 
-                "result": 1.0 if not has_anomaly("NO_TRANSACTIONS_DETECTED") else 0.0,
-                "bbox": [200, 10, 850, 990], "page": 0
+                "name": "Transaction Table Structure", "priority": "HIGH", "weight": 10, "result": cp4_hdfc,
+                "reason": f"{len(found_h_cols)} columns: {', '.join(found_h_cols)}" if cp4_hdfc > 0 else "Insufficient columns",
+                "detected_value": f"{len(found_h_cols)} cols"
             })
-            math_anom = next((a for a in anomalies if a.get("indicator") == "Math Mismatch"), {})
+
+            # ── CP5. Date Format Consistency [MEDIUM] ──────────────────
+            h_dfm1 = re.findall(r'\b\d{2}/\d{2}/\d{4}\b', text)
+            h_dfm2 = re.findall(r'\b\d{2}-\d{2}-\d{4}\b', text)
+            if (len(h_dfm1) > 0 and len(h_dfm2) == 0) or (len(h_dfm2) > 0 and len(h_dfm1) == 0):
+                cp5_hdfc = 1.0
+            elif len(h_dfm1) > 0 and len(h_dfm2) > 0:
+                cp5_hdfc = 0.5
+            else:
+                cp5_hdfc = 0.0
             checkpoint_results.append({
-                "name": "Running Balance Consistency", "weight": 20, 
-                "result": 1.0 if not math_anom else 0.0,
-                "bbox": math_anom.get("bbox", [250, 700, 800, 980]),
-                "page": math_anom.get("page", 0)
+                "name": "Date Format Consistency", "priority": "MEDIUM", "weight": 5, "result": cp5_hdfc,
+                "reason": "Consistent DD/MM/YYYY or DD-MM-YYYY" if cp5_hdfc == 1.0 else ("Mixed formats" if cp5_hdfc == 0.5 else "No/wrong format"),
+                "detected_value": "Consistent" if cp5_hdfc == 1.0 else ("Mixed" if cp5_hdfc == 0.5 else "None")
             })
-            checkpoint_results.append({"name": "Summary Verification", "weight": 10, "result": 1.0})
-            checkpoint_results.append({"name": "PDF Tampering Detection", "weight": 10, "result": 1.0 if not has_indicator("Metadata Tampering") else 0.0})
+
+            # ── CP6. Balance Consistency Check [CRITICAL] ──────────────
+            h_math_anoms = [a for a in anomalies if a.get("indicator") == "Math Mismatch"]
+            cp6_hdfc = 1.0 if len(h_math_anoms) == 0 and transactions else (0.5 if 0 < len(h_math_anoms) <= 2 else 0.0)
+            if not transactions: cp6_hdfc = 0.0
+            checkpoint_results.append({
+                "name": "Balance Consistency Check", "priority": "CRITICAL", "weight": 20, "result": cp6_hdfc,
+                "reason": f"Verified {len(transactions)} rows" if cp6_hdfc == 1.0 else (f"{len(h_math_anoms)} discrepancies" if cp6_hdfc == 0.5 else "Math mismatch / No data"),
+                "detected_value": "Math OK" if cp6_hdfc == 1.0 else "Math Fail",
+                "bbox": h_math_anoms[0].get("bbox", [250, 700, 800, 980]) if h_math_anoms else [250, 700, 800, 980],
+                "page": h_math_anoms[0].get("page", 0) if h_math_anoms else 0
+            })
+            if cp6_hdfc == 0.0:
+                return BankLogic.finalize_fake(checkpoint_results, "Balance Consistency check failed (CRITICAL)", "HDFC")
+
+            # ── CP7. Transaction Narration Pattern [NOT APPLICABLE for HDFC] ──
+            checkpoint_results.append({
+                "name": "Transaction Narration Pattern", "priority": "MEDIUM", "weight": 5, "result": 1.0,
+                "status": "NOT APPLICABLE",
+                "reason": "HDFC Bank — not applicable",
+                "detected_value": "—"
+            })
+
+            # ── CP8. Opening & Closing Balance [HIGH] ──────────────────
+            h_has_ob = bool(re.search(r'(?i)OPENING\s*BALANCE', text))
+            h_has_cb = bool(re.search(r'(?i)CLOSING\s*BALANCE', text))
+            h_total_mismatch = "TOTAL_MISMATCH" in str(anomalies)
+            cp8_hdfc = 1.0 if (h_has_ob and h_has_cb and not h_total_mismatch) else (0.5 if (h_has_ob and h_has_cb) else 0.0)
+            checkpoint_results.append({
+                "name": "Opening and Closing Balance", "priority": "HIGH", "weight": 15, "result": cp8_hdfc,
+                "reason": "Summary equation verified" if cp8_hdfc == 1.0 else ("Balances present but equation mismatch" if cp8_hdfc == 0.5 else "Missing summary balances"),
+                "detected_value": "Verified" if cp8_hdfc == 1.0 else ("Partial" if cp8_hdfc == 0.5 else "Missing")
+            })
 
         # Final processing for all bank brands
-        fail_count = sum(1 for cp in checkpoint_results if cp.get("result", 1.0) <= 0)
+        for cp in checkpoint_results:
+            # HDFC/KOTAK set status explicitly above; preserve it
+            if "status" not in cp or cp["status"] not in ("PASSED", "FAILED", "WARNING", "NOT APPLICABLE"):
+                if cp.get("result", 0) <= 0: cp["status"] = "FAILED"
+                elif cp.get("result", 0) >= 1.0: cp["status"] = "PASSED"
+                else: cp["status"] = "WARNING"
+            
+        fail_count = sum(1 for cp in checkpoint_results if cp["status"] == "FAILED")
+        warn_count = sum(1 for cp in checkpoint_results if cp["status"] == "WARNING")
         
         # Rule-Based Classification
-        if bank_brand == "IOB":
-            # IOB Specific: Simple Verdict Logic
+        if bank_brand in ["HDFC", "KOTAK"]:
+            critical_fails = sum(1 for cp in checkpoint_results if cp.get("priority") == "CRITICAL" and cp["status"] == "FAILED")
+            high_fails = sum(1 for cp in checkpoint_results if cp.get("priority") == "HIGH" and cp["status"] == "FAILED")
+            all_critical_high_pass = all(cp["status"] in ("PASSED", "NOT APPLICABLE") for cp in checkpoint_results if cp.get("priority") in ["CRITICAL", "HIGH"])
+            
+            if critical_fails > 0:
+                final_verdict = "FAKE"
+            elif fail_count >= 2:
+                final_verdict = "FAKE"
+            elif fail_count == 1 or warn_count >= 3:
+                final_verdict = "SUSPICIOUS"
+            elif fail_count == 0 and all_critical_high_pass:
+                final_verdict = "GENUINE"
+            else:
+                final_verdict = "GENUINE"
+                
+        elif bank_brand == "IOB":
             if processing_status == "INVALID":
-                final_verdict = "FAKE" # Invalid documents are treated as FAKE in forensic context
+                final_verdict = "FAKE"
             else:
                 critical_names = ["Header Validation", "Table Detection", "Date Validation", "Balance Check"]
-                critical_fails = sum(1 for cp in checkpoint_results if cp["name"] in critical_names and cp.get("result", 1.0) == 0.0)
-                minor_fails = sum(1 for cp in checkpoint_results if cp["name"] not in critical_names and cp.get("result", 1.0) < 1.0)
+                critical_fails = sum(1 for cp in checkpoint_results if cp["name"] in critical_names and cp["status"] == "FAILED")
+                minor_fails = sum(1 for cp in checkpoint_results if cp["name"] not in critical_names and cp["status"] != "PASSED")
+                if critical_fails > 0: final_verdict = "FAKE"
+                elif minor_fails > 0: final_verdict = "SUSPICIOUS"
+                else: final_verdict = "GENUINE"
                 
-                if critical_fails > 0:
-                    final_verdict = "FAKE"
-                elif minor_fails > 0:
-                    final_verdict = "SUSPICIOUS"
-                else:
-                    final_verdict = "REAL"
         elif bank_brand == "ICICI":
             major_names = ["Header Identity Check", "Balance Flow Validation", "Final Balance Reconciliation", "Flexible Table Parsing"]
-            major_fails = [cp for cp in checkpoint_results if cp["name"] in major_names and cp.get("result", 1.0) <= 0]
+            major_fails = sum(1 for cp in checkpoint_results if cp["name"] in major_names and cp["status"] == "FAILED")
+            if fail_count == 0: final_verdict = "GENUINE"
+            elif major_fails > 0: final_verdict = "FAKE"
+            else: final_verdict = "SUSPICIOUS"
             
-            if fail_count == 0:
-                final_verdict = "REAL"
-            elif any(major_fails):
-                final_verdict = "FAKE"
-            else:
-                final_verdict = "SUSPICIOUS"
         else:
-            # Standard logic (0=REAL, 1=SUSPICIOUS, 2+=FAKE)
-            if fail_count == 0:
-                final_verdict = "REAL"
-            elif fail_count == 1:
-                final_verdict = "SUSPICIOUS"
-            else:
-                final_verdict = "FAKE"
+            if fail_count == 0: final_verdict = "GENUINE"
+            elif fail_count == 1: final_verdict = "SUSPICIOUS"
+            else: final_verdict = "FAKE"
             
         # Final score calculation based on weights for UI granularity
         final_score = 0.0
         for cp in checkpoint_results:
+            if "priority" not in cp:
+                cp["priority"] = "HIGH" if cp.get("weight", 10) >= 15 else ("CRITICAL" if cp.get("weight") == 20 else "MEDIUM")
+                
             contribution = (cp.get("weight", 0) / 100.0) * cp["result"]
             cp["contribution"] = round(contribution * 100, 2)
-            if cp["result"] <= 0:
-                cp["status"] = "FAILED"
-            elif cp["result"] >= 1.0:
-                cp["status"] = "PASSED"
-            else:
-                cp["status"] = "WARNING"
             
             if "reason" not in cp:
-                cp["reason"] = "Validation completed successfully" if cp["status"] == "PASSED" else "Minor inconsistency detected"
+                cp["reason"] = "Validation completed successfully" if cp["status"] == "PASSED" else "Inconsistency detected"
             final_score += contribution
 
         # 10. Generate Dynamic Remarks
@@ -1420,12 +1605,31 @@ class BankLogic:
             "score": round(final_score * 100, 2) if bank_brand != "SBI" else (100 - (fail_count * 20)),
             "verdict": final_verdict,
             "remarks": remarks,
-            "final_decision": final_verdict.lower() if final_verdict != "REAL" else "genuine",
+            "final_decision": final_verdict.lower() if final_verdict not in ("GENUINE", "REAL") else "genuine",
             "checkpoints": checkpoint_results,
             "is_checkpoint_based": True,
             "fail_count": fail_count,
             "bank_brand": bank_brand,
             "master_template_used": True if master_data else False
+        }
+
+    @staticmethod
+    def finalize_fake(checkpoints: list, reason: str, brand: str) -> dict:
+        """Immediately terminate with FAKE verdict on critical failure."""
+        # Ensure all checkpoints in the list have a status
+        for cp in checkpoints:
+            if "status" not in cp or cp["status"] not in ("PASSED", "FAILED", "WARNING", "NOT APPLICABLE"):
+                cp["status"] = "FAILED" if cp.get("result", 0) <= 0 else ("PASSED" if cp.get("result", 1.0) >= 1.0 else "WARNING")
+        return {
+            "score": 0,
+            "verdict": "FAKE",
+            "remarks": reason,
+            "final_decision": "fake",
+            "checkpoints": checkpoints,
+            "is_checkpoint_based": True,
+            "fail_count": sum(1 for cp in checkpoints if cp.get("status") == "FAILED"),
+            "bank_brand": brand,
+            "immediate_fake": True
         }
 
     @staticmethod
@@ -1472,3 +1676,6 @@ class BankLogic:
             return float(clean)
         except ValueError:
             return 0.0
+
+
+            

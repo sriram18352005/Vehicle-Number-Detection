@@ -83,10 +83,111 @@ function CommandPalette({ open, setOpen, router }: { open: boolean, setOpen: any
     );
 }
 
+import { NotificationProvider, useNotifications } from "@/context/NotificationContext";
+
+// ─── Global Onboarding Tour ────────────────────────────────────
+const TOUR_STEPS = [
+    {
+        title: 'Welcome to Verentis',
+        body: 'The Forensic Detection Intelligence platform — an AI-powered suite for Identity, Finance, and Automotive document verification.',
+        step: 1
+    },
+    {
+        title: 'Threat Intelligence Hub',
+        body: 'Your command center showing live forensic trends, session data, and geographic detection signals in real time.',
+        step: 2
+    },
+    {
+        title: 'Document Analysis',
+        body: 'Upload Identity, Finance, or Vehicle documents for multi-spectral forensic analysis and instant verdicts.',
+        step: 3
+    },
+    {
+        title: 'Forensic Audit Trail',
+        body: 'Every scan is logged to a secure chain of custody ledger. Review hash-verified evidence profiles anytime.',
+        step: 4
+    },
+];
+
+function GlobalTour() {
+    const { addNotification } = useNotifications();
+    const [step, setStep] = useState(() => {
+        if (typeof window === 'undefined') return -1;
+        return !localStorage.getItem('verentis_toured') ? 0 : -1;
+    });
+
+    if (step < 0) return null;
+
+    const current = TOUR_STEPS[step];
+
+    const advance = () => {
+        if (step < TOUR_STEPS.length - 1) {
+            setStep(step + 1);
+        } else {
+            setStep(-1);
+            localStorage.setItem('verentis_toured', 'true');
+            addNotification('info', 'Tour Complete', 'Welcome aboard. You are ready to run your first forensic investigation.');
+        }
+    };
+
+    const dismiss = () => {
+        setStep(-1);
+        localStorage.setItem('verentis_toured', 'true');
+    };
+
+    return (
+        <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm flex items-center justify-center p-6">
+            <div className="w-full max-w-md bg-[#10131c] border border-[#00c2cb40] rounded-3xl p-8 shadow-[0_0_80px_rgba(0,194,203,0.2)] relative overflow-hidden">
+                {/* Ambient glow */}
+                <div className="absolute top-0 right-0 w-48 h-48 bg-[#00c2cb] opacity-5 rounded-full blur-[60px] pointer-events-none" />
+
+                {/* Step indicator */}
+                <div className="flex items-center gap-2 mb-6">
+                    {TOUR_STEPS.map((_, i) => (
+                        <div key={i} className="h-1 flex-1 rounded-full transition-all duration-500" style={{
+                            backgroundColor: i <= step ? '#00c2cb' : '#1e2535'
+                        }} />
+                    ))}
+                </div>
+
+                <div className="text-[9px] font-black uppercase tracking-[0.3em] text-[#00c2cb] mb-3">
+                    Step {current.step} of {TOUR_STEPS.length}
+                </div>
+                <h2 className="text-2xl font-black tracking-tight text-white mb-3">{current.title}</h2>
+                <p className="text-sm text-[#c8d0e0] leading-relaxed mb-8 font-medium">{current.body}</p>
+
+                <div className="flex items-center justify-between">
+                    <button
+                        onClick={dismiss}
+                        className="text-[10px] font-black uppercase tracking-widest text-[#4a5568] hover:text-[#e8ecf4] transition-colors"
+                    >
+                        Skip Tour
+                    </button>
+                    <button
+                        onClick={advance}
+                        className="px-6 py-3 bg-[#00c2cb] hover:bg-[#00d4de] text-[#0a0d14] rounded-xl text-[11px] font-black uppercase tracking-widest transition-all hover:scale-105 active:scale-95 shadow-[0_0_20px_rgba(0,194,203,0.3)]"
+                    >
+                        {step < TOUR_STEPS.length - 1 ? 'Next →' : 'Get Started'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+    return (
+        <NotificationProvider>
+            <DashboardContent>{children}</DashboardContent>
+        </NotificationProvider>
+    );
+}
+
+function DashboardContent({ children }: { children: React.ReactNode }) {
     const pathname = usePathname();
     const [user, setUser] = useState<any>(null);
     const [cmdOpen, setCmdOpen] = useState(false);
+    const { notifications, showNotifs, setShowNotifs, markAllRead } = useNotifications();
 
     const router = useRouter();
 
@@ -113,6 +214,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
     return (
         <div className="flex h-screen overflow-hidden bg-background text-foreground font-display">
+            {/* Global Onboarding Tour */}
+            <GlobalTour />
             {/* Sidebar */}
             <aside className="w-[220px] bg-[#10131c] border-r border-[#1e2535] flex flex-col z-20 shrink-0">
                 <div className="p-6 flex items-center gap-3">
@@ -127,6 +230,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                         <Link
                             key={item.path}
                             href={item.path}
+                            id={item.path === '/dashboard/reports' ? 'sidebar-reports' : undefined}
                             className={cn(
                                 "flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 group",
                                 pathname === item.path
@@ -184,14 +288,57 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                                 <kbd className="hidden sm:inline-block bg-[#1e2535] px-1.5 py-0.5 rounded text-[10px] font-sans font-semibold border border-[#2d3748]">Ctrl K</kbd>
                             </button>
                         </div>
-                        <button className="w-10 h-10 flex items-center justify-center rounded-full bg-muted text-card-foreground hover:bg-accent relative transition-colors">
-                            <span className="material-symbols-outlined">notifications</span>
-                            <span className="absolute top-2.5 right-2.5 w-2 h-2 bg-red-500 rounded-full border-2 border-card"></span>
-                        </button>
+                        <div className="relative">
+                            <button
+                                onClick={() => setShowNotifs(!showNotifs)}
+                                className="w-10 h-10 flex items-center justify-center rounded-full bg-[#10131c] border border-[#1e2535] text-[#4a5568] hover:border-[#00c2cb] hover:text-[#e8ecf4] relative transition-all"
+                            >
+                                <span className="material-symbols-outlined text-xl">notifications</span>
+                                {notifications.filter(n => !n.read).length > 0 && (
+                                    <span className="absolute -top-1 -right-1 w-4 h-4 bg-[#ff1744] rounded-full flex items-center justify-center text-[8px] font-black text-white shadow-[0_0_10px_rgba(255,23,68,0.5)]">
+                                        {notifications.filter(n => !n.read).length}
+                                    </span>
+                                )}
+                            </button>
+
+                            {showNotifs && (
+                                <div
+                                    className="absolute top-full right-0 mt-4 w-80 bg-[#10131c] border border-[#1e2535] rounded-xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] z-[1000] overflow-hidden"
+                                    onClick={(e) => e.stopPropagation()}
+                                >
+                                    <div className="p-4 border-b border-[#1e2535] flex justify-between items-center bg-[#0a0d14]">
+                                        <span className="text-[10px] font-black uppercase tracking-widest text-[#e8ecf4]">Notifications</span>
+                                        <button onClick={markAllRead} className="text-[10px] font-bold text-[#00c2cb] hover:underline">Mark all read</button>
+                                    </div>
+                                    <div className="max-h-[400px] overflow-y-auto">
+                                        {notifications.length === 0 ? (
+                                            <div className="p-10 text-center text-[#4a5568] text-xs font-medium italic">
+                                                No new notifications
+                                            </div>
+                                        ) : (
+                                            notifications.map(n => (
+                                                <div key={n.id} className={cn("p-4 border-b border-[#1e2535] flex gap-3 transition-colors", !n.read ? "bg-[#00c2cb05]" : "hover:bg-[#1e253530]")}>
+                                                    <div className={cn("w-2 h-2 rounded-full mt-1.5 shrink-0 shadow-[0_0_8px_currentColor]",
+                                                        n.type === 'success' ? "text-[#00c853] bg-[#00c853]" :
+                                                            n.type === 'error' ? "text-[#ff1744] bg-[#ff1744]" :
+                                                                n.type === 'warning' ? "text-[#ffab00] bg-[#ffab00]" : "text-[#0088ff] bg-[#0088ff]"
+                                                    )} />
+                                                    <div className="flex-1 min-w-0">
+                                                        <p className="text-[11px] font-bold text-[#e8ecf4] truncate">{n.title}</p>
+                                                        <p className="text-[10px] text-[#4a5568] mt-1 leading-relaxed">{n.body}</p>
+                                                        <p className="text-[8px] text-[#2d3748] mt-2 font-mono uppercase tracking-tighter">{n.time}</p>
+                                                    </div>
+                                                </div>
+                                            ))
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </header>
 
-                <div className="flex-1 overflow-y-auto">
+                <div className="flex-1 overflow-y-auto" onClick={() => setShowNotifs(false)}>
                     <CommandPalette open={cmdOpen} setOpen={setCmdOpen} router={router} />
                     {children}
 

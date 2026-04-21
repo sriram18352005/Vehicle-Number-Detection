@@ -15,6 +15,8 @@ export const metadata: Metadata = {
   description: "Advanced AI-powered document verification and forensic analysis platform.",
 };
 
+import { SplashScreen } from "@/components/ui/SplashScreen";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -27,6 +29,7 @@ export default function RootLayout({
       </head>
       <body className={`${publicSans.className} antialiased`}>
         <ThemeProvider>
+          <SplashScreen />
           {children}
           <Toaster position="top-right" richColors />
         </ThemeProvider>

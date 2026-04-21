@@ -5,6 +5,7 @@ import {
     Loader2, Info, ChevronDown, ChevronUp, Server, Search, ChevronRight
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useNotifications } from "@/context/NotificationContext";
 
 const BACKEND = process.env.NEXT_PUBLIC_VEHICLE_BACKEND_URL || 'http://localhost:8001';
 type AppMode = "single" | "batch";
@@ -14,6 +15,34 @@ type VerdictStatus = "valid" | "review" | "irrelevant" | "error" | "invalid" | n
 interface Checkpoint { id: string; label: string; status: CpStatus; }
 interface DetectionData { value: string | null; source: string; confidence: number; manufacturer?: string; checksum?: boolean; state?: string; is_valid?: boolean; rejection_reason?: string | null; }
 interface SingleResult { verdict: VerdictStatus; status: string; statusMessage: string; chassis: DetectionData; registration: DetectionData; pagesScanned: number; ocrItemsFound: number; error?: string; }
+interface VehicleCase {
+    id: string;
+    name: string;
+    description: string;
+    createdAt: string;
+    status: 'open' | 'review' | 'closed';
+    files: {
+        name: string;
+        chassis: string | null;
+        registration: string | null;
+        status: string;
+        manufacturer: string | null;
+    }[];
+}
+
+interface AuditEntry {
+    caseId: string;
+    timestamp: string;
+    fileName: string;
+    fileSize: number;
+    chassis: string | null;
+    registration: string | null;
+    status: string;
+    extractionMethod: string;
+    invalidReason: string | null;
+    resultHash: string;
+}
+
 interface BatchRow {
     index: number; fileName: string; fileSize: number; status: string; statusMessage: string; chassis: string | null; chassisSource?: string; chassisConfidence: number; chassisManufacturer?: string; chassisChecksum?: boolean; chassisIsValid?: boolean; chassisRejectionReason?: string | null; registration: string | null; regState?: string; regSource?: string; regConfidence: number; pagesScanned: number; isVehicle: boolean;
     qrResult?: {
@@ -23,6 +52,7 @@ interface BatchRow {
         summary: string | null;
         link: string | null;
     };
+    thumbnail?: string | null;
 }
 
 const INIT_CP: Checkpoint[] = [
@@ -118,40 +148,179 @@ async function detectQRCode(file: File): Promise<{
     }
 }
 
-function saveAnalyticsResult(mode: 'single' | 'batch', files: any[]) {
+async function generateThumbnail(file: File): Promise<string | null> {
     try {
-        const storeStr = localStorage.getItem('verentis_analytics');
-        const store = storeStr ? JSON.parse(storeStr) : { sessions: [], totalProcessed: 0, lastUpdated: 0 };
-
-        let valid = 0, invalid = 0, partial = 0, skipped = 0;
-        files.forEach(f => {
-            if (f.status === 'valid') valid++;
-            else if (f.status === 'invalid' || f.status === 'error') invalid++;
-            else if (f.status === 'partial') partial++;
-            else if (f.status === 'skipped') skipped++;
-        });
-
-        store.sessions.unshift({
-            id: 'ses_' + Date.now().toString(36) + Math.random().toString(36).substring(2, 5),
-            timestamp: Date.now(),
-            mode,
-            files,
-            totalFiles: files.length,
-            validCount: valid,
-            invalidCount: invalid,
-            partialCount: partial,
-            skippedCount: skipped
-        });
-
-        if (store.sessions.length > 200) store.sessions = store.sessions.slice(0, 200);
-
-        store.totalProcessed += files.length;
-        store.lastUpdated = Date.now();
-        localStorage.setItem('verentis_analytics', JSON.stringify(store));
-    } catch (e) {
-        console.error("Failed to save analytics", e);
+        if (file.type.startsWith('image/')) {
+            return URL.createObjectURL(file);
+        }
+        if (file.type === 'application/pdf') {
+            const pdfjsLib = await import('pdfjs-dist');
+            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+            const ab = await file.arrayBuffer();
+            const pdf = await pdfjsLib.getDocument({ data: ab }).promise;
+            const page = await pdf.getPage(1);
+            const vp = page.getViewport({ scale: 0.3 });
+            const canvas = document.createElement('canvas');
+            canvas.width = vp.width;
+            canvas.height = vp.height;
+            const ctx = canvas.getContext('2d')!;
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            await page.render({ canvasContext: ctx, viewport: vp }).promise;
+            return canvas.toDataURL('image/jpeg', 0.7);
+        }
+        return null;
+    } catch {
+        return null;
     }
 }
+
+function validateVINChecksum(vin: string): boolean {
+    if (vin.length !== 17) return false;
+    const transliteration: Record<string, number> = {
+        A: 1, B: 2, C: 3, D: 4, E: 5, F: 6, G: 7, H: 8,
+        J: 1, K: 2, L: 3, M: 4, N: 5, P: 7, R: 9,
+        S: 2, T: 3, U: 4, V: 5, W: 6, X: 7, Y: 8, Z: 9,
+        '0': 0, '1': 1, '2': 2, '3': 3, '4': 4,
+        '5': 5, '6': 6, '7': 7, '8': 8, '9': 9
+    };
+    const weights = [8, 7, 6, 5, 4, 3, 2, 10, 0, 9, 8, 7, 6, 5, 4, 3, 2];
+    let sum = 0;
+    for (let i = 0; i < 17; i++) {
+        const val = transliteration[vin[i]];
+        if (val === undefined) return false;
+        sum += val * weights[i];
+    }
+    const remainder = sum % 11;
+    const checkDigit = remainder === 10 ? 'X' : String(remainder);
+    return checkDigit === vin[8];
+}
+
+function printReport(rows: BatchRow[]) {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Verentis Vehicle Analysis Report</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 40px; color: #111; }
+          h1 { font-size: 20px; margin-bottom: 4px; }
+          .subtitle { font-size: 12px; color: #666; margin-bottom: 24px; }
+          table { width: 100%; border-collapse: collapse; font-size: 11px; }
+          th { background: #f5f5f5; padding: 8px 10px; text-align: left; border-bottom: 2px solid #ddd; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; }
+          td { padding: 8px 10px; border-bottom: 1px solid #eee; }
+          .valid   { color: #00a844; font-weight: 700; }
+          .invalid { color: #cc0020; font-weight: 700; }
+          .partial { color: #cc7700; font-weight: 700; }
+          .mono { font-family: 'Courier New', monospace; }
+          .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; }
+          .logo { font-size: 22px; font-weight: 900; letter-spacing: 2px; }
+          .meta { font-size: 11px; color: #666; text-align: right; }
+          @media print { body { padding: 20px; } }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div>
+            <div class="logo">VERENTIS</div>
+            <div class="subtitle">Forensic Vehicle Analysis Report</div>
+          </div>
+          <div class="meta">
+            Generated: ${new Date().toLocaleString()}<br/>
+            Total Files: ${rows.length}
+          </div>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>File Name</th>
+              <th>Chassis / VIN</th>
+              <th>Registration</th>
+              <th>Manufacturer</th>
+              <th>State</th>
+              <th>Status</th>
+              <th>Remarks</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map((r, i) => `<tr>
+              <td>${i + 1}</td><td>${r.fileName}</td><td class="mono">${r.chassis || '—'}</td><td class="mono">${r.registration || '—'}</td><td>${r.chassisManufacturer || '—'}</td><td>${r.regState?.split('—')[1]?.trim() || '—'}</td><td class="${r.status}">${r.status.toUpperCase()}</td><td style="font-size:10px">${r.chassisRejectionReason || r.statusMessage || ''}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+        <div style="margin-top:32px; font-size:10px; color:#999; border-top:1px solid #eee; padding-top:12px;">
+          Verentis Forensic Services — Confidential Vehicle Analysis
+        </div>
+      </body>
+      </html>
+    `;
+    printWindow.document.write(html);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => printWindow.print(), 500);
+}
+
+function VINBreakdown({ vin }: { vin: string }) {
+    if (!vin || vin.length !== 17) return null;
+    const sections = [
+        { chars: vin.substring(0, 3), label: 'WMI', color: '#00c2cb', tip: 'Manufacturer' },
+        { chars: vin.substring(3, 8), label: 'VDS', color: '#0088ff', tip: 'Vehicle Type' },
+        { chars: vin.substring(8, 9), label: 'CHECK', color: '#ffab00', tip: 'Check Digit' },
+        { chars: vin.substring(9, 10), label: 'YEAR', color: '#9c27b0', tip: 'Model Year' },
+        { chars: vin.substring(10, 11), label: 'PLANT', color: '#ff6d00', tip: 'Assembly Plant' },
+        { chars: vin.substring(11, 17), label: 'SEQ', color: '#4a5568', tip: 'Serial Number' },
+    ];
+    return (
+        <div style={{ marginTop: 16 }}>
+            <div style={{ fontSize: 8, fontWeight: 700, letterSpacing: '2px', color: '#2d3748', textTransform: 'uppercase', marginBottom: 8 }}>
+                VIN Structure Breakdown
+            </div>
+            <div style={{ display: 'flex', gap: 2, background: '#080c14', border: '1px solid #1e2535', borderRadius: 8, padding: 10, overflowX: 'auto' }}>
+                {sections.map((s, i) => (
+                    <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                        <div style={{ fontFamily: 'Courier New, monospace', fontSize: 14, fontWeight: 800, color: s.color, letterSpacing: 2, background: `${s.color}12`, border: `1px solid ${s.color}30`, borderRadius: 4, padding: '4px 6px', whiteSpace: 'nowrap' }}>
+                            {s.chars}
+                        </div>
+                        <div style={{ fontSize: 7, fontWeight: 700, letterSpacing: '1px', color: s.color, textTransform: 'uppercase', textAlign: 'center' }}>
+                            {s.label}
+                        </div>
+                        <div style={{ fontSize: 7, color: '#2d3748', textAlign: 'center', maxWidth: 52 }}>
+                            {s.tip}
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+}
+
+function FileTypeIcon({ fileName }: { fileName: string }) {
+    const ext = fileName.split('.').pop()?.toLowerCase() || '';
+    const config: Record<string, { bg: string; color: string; label: string }> = {
+        pdf: { bg: '#1a0505', color: '#ff5252', label: 'PDF' },
+        jpg: { bg: '#0a1a0a', color: '#00c853', label: 'JPG' },
+        jpeg: { bg: '#0a1a0a', color: '#00c853', label: 'JPG' },
+        png: { bg: '#0a0f1a', color: '#0088ff', label: 'PNG' },
+        webp: { bg: '#1a0f00', color: '#ffab00', label: 'WEBP' },
+        tiff: { bg: '#1a001a', color: '#9c27b0', label: 'TIFF' },
+    };
+    const c = config[ext] || { bg: '#111', color: '#4a5568', label: ext.toUpperCase() };
+    return (
+        <div style={{ width: 36, height: 46, borderRadius: 4, background: c.bg, border: `1px solid ${c.color}40`, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flexShrink: 0, gap: 3 }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={c.color} strokeWidth="1.5">
+                <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+            </svg>
+            <span style={{ fontSize: 7, fontWeight: 800, color: c.color, letterSpacing: '0.5px' }}>
+                {c.label}
+            </span>
+        </div>
+    );
+}
+
 
 function ConfidenceRing({ value, label, color }: { value: number, label: string, color: string }) {
     const radius = 28;
@@ -277,6 +446,107 @@ export function VehicleModule() {
     const [sortCol, setSortCol] = useState<string | null>(null);
     const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
     const cancelRef = useRef(false);
+    const [singleThumbnail, setSingleThumbnail] = useState<string | null>(null);
+    const [isDragging, setIsDragging] = useState(false);
+    const [compareMode, setCompareMode] = useState(false);
+    const [compareResult, setCompareResult] = useState<SingleResult | null>(null);
+    const [compareThumbnail, setCompareThumbnail] = useState<string | null>(null);
+    const compareFileRef = useRef<HTMLInputElement>(null);
+
+    // Phase 4 States
+    const { addNotification } = useNotifications();
+    const [duplicateAlerts, setDuplicateAlerts] = useState<[string, string[]][]>([]);
+    const [cases, setCases] = useState<VehicleCase[]>(() => {
+        if (typeof window !== 'undefined') {
+            return JSON.parse(localStorage.getItem('verentis_cases') || '[]');
+        }
+        return [];
+    });
+    const [showCaseModal, setShowCaseModal] = useState(false);
+    const [newCaseName, setNewCaseName] = useState('');
+    const [newCaseDesc, setNewCaseDesc] = useState('');
+    const [tourStep, setTourStep] = useState(() => {
+        if (typeof window !== 'undefined') {
+            return !localStorage.getItem('verentis_toured') ? 0 : -1;
+        }
+        return -1;
+    });
+
+    const TOUR_STEPS = [
+        {
+            title: 'Welcome to Verentis',
+            body: 'The AI-powered forensic detection intelligence platform. Let us show you around in 4 quick steps.',
+            target: 'hero-banner',
+            position: 'bottom'
+        },
+        {
+            title: 'Single Document Mode',
+            body: 'Upload one vehicle document — RC book, invoice, or lorry receipt — and get instant chassis and registration analysis.',
+            target: 'upload-zone',
+            position: 'bottom'
+        },
+        {
+            title: 'Batch Folder Mode',
+            body: 'Process an entire folder of documents at once. Get green/red/amber results for each file with detailed breakdown.',
+            target: 'mode-switcher',
+            position: 'bottom'
+        },
+        {
+            title: 'Analytics Dashboard',
+            body: 'Check the Reports page to see trends, top manufacturers, states, and document validity over time.',
+            target: 'sidebar-reports',
+            position: 'right'
+        },
+    ];
+
+    function simpleHash(str: string): string {
+        let hash = 0;
+        for (let i = 0; i < str.length; i++) {
+            hash = ((hash << 5) - hash) + str.charCodeAt(i);
+            hash |= 0;
+        }
+        return Math.abs(hash).toString(16).toUpperCase().padStart(8, '0');
+    }
+
+    function saveAnalytics(rows: BatchRow[]) {
+        try {
+            let existing = [];
+            try {
+                const data = JSON.parse(localStorage.getItem('verentis_analytics') || '[]');
+                existing = Array.isArray(data) ? data : (data.sessions || []);
+            } catch { existing = []; }
+
+            const mfrMap: Record<string, number> = {};
+            rows.filter(r => r.chassisManufacturer).forEach(r => {
+                mfrMap[r.chassisManufacturer!] = (mfrMap[r.chassisManufacturer!] || 0) + 1;
+            });
+            const stateMap: Record<string, number> = {};
+            rows.filter(r => r.regState).forEach(r => {
+                const s = r.regState!.split('—')[1]?.trim() || '';
+                if (s) stateMap[s] = (stateMap[s] || 0) + 1;
+            });
+
+            existing.push({
+                id: Date.now(),
+                date: new Date().toISOString(),
+                total: rows.length,
+                valid: rows.filter(r => r.status === 'valid').length,
+                invalid: rows.filter(r => r.status === 'invalid' || r.status === 'error').length,
+                partial: rows.filter(r => r.status === 'partial').length,
+                skipped: rows.filter(r => r.status === 'skipped' || r.status === 'irrelevant').length,
+                manufacturers: mfrMap,
+                states: stateMap,
+            });
+            localStorage.setItem('verentis_analytics', JSON.stringify(existing.slice(-90)));
+        } catch { /* never crash batch */ }
+    }
+
+    useEffect(() => {
+        return () => {
+            if (singleThumbnail) URL.revokeObjectURL(singleThumbnail);
+            if (compareThumbnail) URL.revokeObjectURL(compareThumbnail);
+        };
+    }, [singleThumbnail, compareThumbnail]);
 
     function toggleSort(col: string) {
         if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
@@ -407,17 +677,30 @@ export function VehicleModule() {
                 statusMessage: data.statusMessage,
                 ocrItemsFound: data.ocrItemsFound
             });
-            saveAnalyticsResult('single', [{
-                filename: file.name,
-                status: data.status,
-                chassis: data.chassis?.value || null,
-                manufacturer: data.chassis?.manufacturer || null,
-                registration: data.registration?.value || null,
-                state: data.registration?.state || null,
-                confidence: Math.max(data.chassis?.confidence || 0, data.registration?.confidence || 0),
-                processingTime: 1.5,
-                rejectionReason: data.chassis?.rejection_reason || null
+            saveAnalytics([{
+                index: 0, fileName: file.name, fileSize: file.size, status: data.status, statusMessage: data.statusMessage,
+                chassis: data.chassis?.value || null, chassisSource: data.chassis?.source, chassisConfidence: data.chassis?.confidence || 0,
+                chassisManufacturer: data.chassis?.manufacturer, chassisChecksum: data.chassis?.checksum, chassisIsValid: data.chassis?.is_valid,
+                chassisRejectionReason: data.chassis?.rejection_reason || null, registration: data.registration?.value || null,
+                regState: data.registration?.state, regSource: data.registration?.source, regConfidence: data.registration?.confidence || 0,
+                pagesScanned: data.pagesScanned, isVehicle: data.isVehicleDocument
             }]);
+            // Persistent Audit Log (Single)
+            const audit = JSON.parse(localStorage.getItem('verentis_audit') || '[]');
+            const entry: AuditEntry = {
+                caseId: 'SINGLE-MODE',
+                timestamp: new Date().toISOString(),
+                fileName: file.name,
+                fileSize: file.size,
+                chassis: data.chassis?.value || null,
+                registration: data.registration?.value || null,
+                status: data.status,
+                extractionMethod: data.chassis?.source || 'OCR',
+                invalidReason: data.chassis?.rejection_reason || null,
+                resultHash: simpleHash(`${data.chassis?.value}${data.registration?.value}${data.status}`)
+            };
+            localStorage.setItem('verentis_audit', JSON.stringify([...audit, entry]));
+
             setSingleStatus('complete');
             showToast(`Analysis complete: ${data.status.toUpperCase()}`, data.status === 'valid' ? 'success' : 'error');
 
@@ -427,16 +710,10 @@ export function VehicleModule() {
                 chassis: { value: null, source: '', confidence: 0 }, registration: { value: null, source: '', confidence: 0 },
                 pagesScanned: 0, ocrItemsFound: 0
             });
-            saveAnalyticsResult('single', [{
-                filename: file.name,
-                status: 'error',
-                chassis: null,
-                manufacturer: null,
-                registration: null,
-                state: null,
-                confidence: 0,
-                processingTime: 0.1,
-                rejectionReason: err.message
+            saveAnalytics([{
+                index: 0, fileName: file.name, fileSize: file.size, status: 'error', statusMessage: err.message,
+                chassis: null, chassisConfidence: 0, registration: null, regConfidence: 0,
+                pagesScanned: 0, isVehicle: false
             }]);
             setSingleStatus('complete');
             showToast(`Analysis failed: ${err.message}`, 'error');
@@ -508,19 +785,42 @@ export function VehicleModule() {
         );
         setSessionStats({ total: finalRows.length, valid, invalid, partial, avgConf });
 
-        saveAnalyticsResult('batch', finalRows.map(r => ({
-            filename: r.fileName,
-            status: r.status,
+        saveAnalytics(results);
+
+        // Persistent Audit Log (Batch)
+        const audit = JSON.parse(localStorage.getItem('verentis_audit') || '[]');
+        const entries: AuditEntry[] = results.map(r => ({
+            caseId: 'BATCH-MODE',
+            timestamp: new Date().toISOString(),
+            fileName: r.fileName,
+            fileSize: r.fileSize,
             chassis: r.chassis,
-            manufacturer: r.chassisManufacturer || null,
             registration: r.registration,
-            state: r.regState || null,
-            confidence: Math.max(r.chassisConfidence || 0, r.regConfidence || 0),
-            processingTime: 1.2,
-            rejectionReason: r.chassisRejectionReason || null
-        })));
+            status: r.status,
+            extractionMethod: r.chassisSource || 'OCR',
+            invalidReason: r.chassisRejectionReason || null,
+            resultHash: simpleHash(`${r.chassis}${r.registration}${r.status}`)
+        }));
+        localStorage.setItem('verentis_audit', JSON.stringify([...audit, ...entries]));
+
+        // Duplicate Detection
+        const chassisMap: Record<string, string[]> = {};
+        results.forEach(r => {
+            if (r.chassis) {
+                if (!chassisMap[r.chassis]) chassisMap[r.chassis] = [];
+                chassisMap[r.chassis].push(r.fileName);
+            }
+        });
+        const dups = Object.entries(chassisMap).filter(e => e[1].length > 1);
+        setDuplicateAlerts(dups as [string, string[]][]);
+
+        if (dups.length > 0) {
+            addNotification('warning', 'Duplicate Chassis Detected', `${dups.length} chassis numbers appear in multiple documents in this batch.`);
+        } else {
+            addNotification('success', 'Batch Complete', `Successfully processed ${results.length} files.`);
+        }
+
         setBatchStatus('complete');
-        showToast(`Batch processing completed (${results.length} files)`, 'success');
     };
 
     const exportCSV = () => {
@@ -575,7 +875,7 @@ export function VehicleModule() {
     const errorCount = batchRows.filter(r => r.status === 'error').length;
 
     return (
-        <div style={{ position: 'relative', background: '#050810', minHeight: '100vh', overflow: 'hidden' }}>
+        <div id="vehicle-module-root" style={{ position: 'relative', background: '#050810', minHeight: '100vh', overflow: 'hidden', transition: 'filter 0.3s' }}>
             <div style={{ position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none', overflow: 'hidden' }}>
                 <div style={{ position: 'absolute', width: 600, height: 600, borderRadius: '50%', background: 'radial-gradient(circle, rgba(0,194,203,0.04) 0%, transparent 70%)', top: '-10%', left: '-10%', animation: 'meshFloat1 18s ease-in-out infinite' }} />
                 <div style={{ position: 'absolute', width: 500, height: 500, borderRadius: '50%', background: 'radial-gradient(circle, rgba(0,136,255,0.03) 0%, transparent 70%)', top: '40%', right: '-5%', animation: 'meshFloat2 22s ease-in-out infinite' }} />
@@ -764,116 +1064,200 @@ export function VehicleModule() {
                             <rect x="5" y="1" width="10" height="11" rx="2" stroke="currentColor" strokeWidth="1" opacity="0.5" />
                         </svg> Batch Folder
                     </button>
+                    <button className={`mode-btn ${compareMode ? 'active' : ''}`} id="btn-compare" onClick={() => {
+                        setMode('single');
+                        setCompareMode(prev => !prev);
+                    }}>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <rect x="3" y="3" width="7" height="18" rx="1" />
+                            <rect x="14" y="3" width="7" height="18" rx="1" />
+                        </svg> Compare Mode
+                    </button>
                 </div>
 
                 {mode === "single" && (
-                    <div>
-                        <div className="upload-zone" id="drop-zone" onClick={() => fileRef.current?.click()}>
-                            {singleStatus === 'idle' || singleStatus === 'complete' ? (
-                                <>
-                                    <div className="empty-state" style={{ padding: '20px 0', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                                        <svg width="80" height="80" viewBox="0 0 80 80" fill="none">
-                                            <rect x="16" y="8" width="44" height="56" rx="6" stroke="#1e2535" strokeWidth="2" />
-                                            <rect x="20" y="8" width="44" height="56" rx="6" stroke="#2d3748" strokeWidth="1.5" />
-                                            <line x1="28" y1="28" x2="52" y2="28" stroke="#1e2535" strokeWidth="2" />
-                                            <line x1="28" y1="36" x2="52" y2="36" stroke="#1e2535" strokeWidth="2" />
-                                            <line x1="28" y1="44" x2="44" y2="44" stroke="#1e2535" strokeWidth="2" />
-                                            <rect x="22" y="20" width="36" height="2" rx="1" fill="rgba(0,194,203,0.5)" style={{ animation: 'scanDoc 2s ease-in-out infinite' }} />
-                                            <circle cx="60" cy="58" r="14" fill="#080c14" stroke="#00c2cb" strokeWidth="1.5" />
-                                            <path d="M55 58 L59 62 L65 54" stroke="#00c2cb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                                        </svg>
+                    <div className={compareMode ? "grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch" : ""}>
+                        <div className="flex flex-col">
+                            <div className="upload-zone" id="drop-zone"
+                                onClick={() => fileRef.current?.click()}
+                                onDragEnter={e => { e.preventDefault(); setIsDragging(true); }}
+                                onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
+                                onDragLeave={e => { e.preventDefault(); setIsDragging(false); }}
+                                onDrop={e => {
+                                    e.preventDefault();
+                                    setIsDragging(false);
+                                    const files = Array.from(e.dataTransfer.files);
+                                    if (files[0]) runSinglePipeline(files[0]);
+                                }}
+                                style={isDragging ? {
+                                    border: '2px dashed #00c2cb',
+                                    background: 'rgba(0,194,203,0.06)',
+                                    transform: 'scale(1.02)'
+                                } : {}}
+                            >
+                                {isDragging && (
+                                    <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,194,203,0.04)', borderRadius: 14, zIndex: 10, flexDirection: 'column' }}>
+                                        <div style={{ fontSize: 32, animation: 'bounceDown 0.6s ease infinite alternate' }}>↓</div>
+                                        <div style={{ fontSize: 14, fontWeight: 700, color: '#00c2cb' }}>Release to analyze</div>
                                     </div>
-                                    <p className="upload-title">{uploadedFile && singleStatus === 'complete' ? `Analyzed: ${uploadedFile.name}` : "Drop vehicle document here"}</p>
-                                    <p className="upload-sub">PDF • PNG • JPG • JPEG • TIFF • WEBP</p>
-                                    <button className="upload-btn">Select File</button>
-                                </>
-                            ) : (
-                                <div className="live-scan py-8 flex flex-col items-center">
-                                    <div className="relative">
-                                        <div className="scan-line-progress" style={{ width: '200px', height: '4px', background: '#1e2535', borderRadius: '4px', overflow: 'hidden' }}>
-                                            <div className="fill" style={{ width: `${Math.round((checkpoints.filter(c => c.status === 'pass' || c.status === 'fail').length / checkpoints.length) * 100)}%`, height: '100%', background: '#00c2cb', transition: 'width 0.3s ease' }}></div>
-                                        </div>
-                                        <div className="scan-flare absolute top-1/2 -ml-[25px]" style={{ left: `${Math.round((checkpoints.filter(c => c.status === 'pass' || c.status === 'fail').length / checkpoints.length) * 100)}%`, width: '50px', height: '30px', background: 'radial-gradient(ellipse at center, rgba(0,194,203,0.8) 0%, transparent 70%)', transform: 'translateY(-50%)' }}></div>
-                                    </div>
-                                    <p className="upload-title text-[#e8ecf4] mt-6 tracking-[1px] text-[11px] uppercase font-bold text-[#00c2cb]">
-                                        {checkpoints.find(c => c.status === 'processing')?.label || checkpoints.find(c => c.status === 'pending')?.label || 'FINALIZATION'}...
-                                    </p>
-                                </div>
-                            )}
-                            <input ref={fileRef} type="file" className="hidden" accept=".pdf,.png,.jpg,.jpeg,.tiff,.webp,.bmp" onChange={e => { const f = e.target.files?.[0]; if (f) runSinglePipeline(f); e.target.value = ''; }} />
-                        </div>
-
-                        {singleStatus !== "idle" && (
-                            <div className="mt-8">
-                                <div className="pipeline-stepper">
-                                    <div className="pipeline-header">
-                                        <span className="pipeline-label">Analysis Pipeline</span>
-                                        <span className="pipeline-engine">PaddleOCR Engine</span>
-                                    </div>
-                                    <div className="steps-row">
-                                        {checkpoints.map((cp, i) => (
-                                            <div className="step" key={cp.id}>
-                                                <div className={`step-icon ${cp.status}`}>
-                                                    {cp.status === 'processing' && <div className="step-spinner" />}
-                                                    {cp.status === 'pass' && <span>✓</span>}
-                                                    {cp.status === 'fail' && <span>✗</span>}
-                                                    {cp.status === 'pending' && <span>{i + 1}</span>}
-                                                </div>
-                                                {i < checkpoints.length - 1 && (
-                                                    <div className={`step-line ${cp.status === 'pass' ? 'active' : ''}`} />
-                                                )}
-                                                <div className="step-label">{cp.label}</div>
+                                )}
+                                {singleStatus === 'idle' || singleStatus === 'complete' ? (
+                                    <>
+                                        {singleThumbnail && uploadedFile && singleStatus === 'complete' ? (
+                                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 20 }}>
+                                                <img src={singleThumbnail} style={{ height: 100, objectFit: 'contain', borderRadius: 6, border: '1px solid rgba(255,255,255,0.1)', boxShadow: '0 8px 30px rgba(0,0,0,0.5)' }} alt="Preview" />
                                             </div>
-                                        ))}
-                                    </div>
-                                </div>
-
-                                {singleStatus === "complete" && singleResult && (
-                                    <div>
-                                        <div className={`verdict-banner ${singleResult.status}`}>
-                                            <div className="verdict-icon">
-                                                {singleResult.status === 'valid' ? (
-                                                    <svg width="32" height="32" viewBox="0 0 32 32" fill="none"><path d="M16 2L30 8V18Q30 26 16 30Q2 26 2 18V8Z" fill="rgba(0,200,83,0.15)" stroke="#00c853" strokeWidth="1.5" /><path d="M10 16L14 20L22 12" stroke="#00c853" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
-                                                ) : singleResult.status === 'invalid' ? (
-                                                    <svg width="32" height="32" viewBox="0 0 32 32" fill="none"><path d="M16 2L30 8V18Q30 26 16 30Q2 26 2 18V8Z" fill="rgba(255,23,68,0.15)" stroke="#ff1744" strokeWidth="1.5" /><path d="M12 12L20 20M20 12L12 20" stroke="#ff1744" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
-                                                ) : (
-                                                    <svg width="32" height="32" viewBox="0 0 32 32" fill="none"><path d="M16 2L30 8V18Q30 26 16 30Q2 26 2 18V8Z" fill="rgba(255,171,0,0.15)" stroke="#ffab00" strokeWidth="1.5" /><path d="M16 10V18M16 22H16.01" stroke="#ffab00" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
-                                                )}
-                                            </div>
-                                            <div>
-                                                <div className="verdict-title">{singleResult.status === 'valid' ? 'VALID DOCUMENT' : singleResult.status === 'invalid' ? 'INVALID / FAKE DOCUMENT' : singleResult.status === 'partial' ? 'PARTIAL RESULT' : 'NOT VEHICLE'}</div>
-                                                <div className="verdict-sub">{singleResult.statusMessage}</div>
-                                            </div>
-                                            {singleResult.status === 'valid' && <div className="verdict-pulse" />}
-                                        </div>
-
-                                        {(singleResult.status !== 'skipped' && singleResult.status !== 'error') && (
-                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                                <div className="data-card" style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
-                                                    <div className="flex-1">
-                                                        <div className="data-card-label">CHASSIS / VIN</div>
-                                                        <div className={`data-card-value ${singleResult.chassis?.is_valid === false ? 'invalid-value' : ''}`}>{renderChassisValue(singleResult.chassis?.value || null)}</div>
-                                                        <div className="data-card-meta">
-                                                            {singleResult.chassis?.value && <span className="meta-badge">{(singleResult.chassis.value ? singleResult.chassis.value.length : 0)} chars</span>}
-                                                            {singleResult.chassis?.manufacturer && <span className="meta-badge manufacturer">{singleResult.chassis.manufacturer}</span>}
-                                                            {singleResult.chassis?.checksum !== undefined && <span className={`meta-badge ${singleResult.chassis.checksum ? 'checksum-pass' : 'checksum-fail'}`}>{singleResult.chassis.checksum ? 'CSUM PASS' : 'CSUM FAIL'}</span>}
-                                                        </div>
-                                                        {singleResult.chassis?.is_valid === false && <div className="mt-3 text-[#ff1744] text-xs font-mono font-bold">REASON: {singleResult.chassis?.rejection_reason}</div>}
-                                                    </div>
-                                                    {(singleResult.chassis?.confidence ?? 0) > 0 && <ConfidenceRing value={singleResult.chassis?.confidence ?? 0} label="CHASSIS" color={(singleResult.chassis?.confidence ?? 0) > 80 ? '#00c853' : (singleResult.chassis?.confidence ?? 0) > 50 ? '#ffab00' : '#ff1744'} />}
-                                                </div>
-                                                <div className="data-card" style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
-                                                    <div className="flex-1">
-                                                        <div className="data-card-label">REGISTRATION</div>
-                                                        <div className="data-card-value">{renderRegValue(singleResult.registration?.value || null)}</div>
-                                                        <div className="data-card-meta">
-                                                            {singleResult.registration?.state && <span className="meta-badge state">{singleResult.registration.state}</span>}
-                                                        </div>
-                                                    </div>
-                                                    {(singleResult.registration?.confidence ?? 0) > 0 && <ConfidenceRing value={singleResult.registration?.confidence ?? 0} label="REG" color={(singleResult.registration?.confidence ?? 0) > 80 ? '#00c853' : (singleResult.registration?.confidence ?? 0) > 50 ? '#ffab00' : '#ff1744'} />}
-                                                </div>
+                                        ) : (
+                                            <div className="empty-state" style={{ padding: '20px 0', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                                                <svg width="80" height="80" viewBox="0 0 80 80" fill="none">
+                                                    <rect x="16" y="8" width="44" height="56" rx="6" stroke="#1e2535" strokeWidth="2" />
+                                                    <rect x="20" y="8" width="44" height="56" rx="6" stroke="#2d3748" strokeWidth="1.5" />
+                                                    <line x1="28" y1="28" x2="52" y2="28" stroke="#1e2535" strokeWidth="2" />
+                                                    <line x1="28" y1="36" x2="52" y2="36" stroke="#1e2535" strokeWidth="2" />
+                                                    <line x1="28" y1="44" x2="44" y2="44" stroke="#1e2535" strokeWidth="2" />
+                                                    <rect x="22" y="20" width="36" height="2" rx="1" fill="rgba(0,194,203,0.5)" style={{ animation: 'scanDoc 2s ease-in-out infinite' }} />
+                                                    <circle cx="60" cy="58" r="14" fill="#080c14" stroke="#00c2cb" strokeWidth="1.5" />
+                                                    <path d="M55 58 L59 62 L65 54" stroke="#00c2cb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                                </svg>
                                             </div>
                                         )}
+                                        <p className="upload-title">{uploadedFile && singleStatus === 'complete' ? `Analyzed: ${uploadedFile.name}` : "Drop vehicle document here"}</p>
+                                        <p className="upload-sub">PDF • PNG • JPG • JPEG • TIFF • WEBP</p>
+                                        <button className="upload-btn">Select File</button>
+                                    </>
+                                ) : (
+                                    <div className="live-scan py-8 flex flex-col items-center">
+                                        <div className="relative">
+                                            <div className="scan-line-progress" style={{ width: '200px', height: '4px', background: '#1e2535', borderRadius: '4px', overflow: 'hidden' }}>
+                                                <div className="fill" style={{ width: `${Math.round((checkpoints.filter(c => c.status === 'pass' || c.status === 'fail').length / checkpoints.length) * 100)}%`, height: '100%', background: '#00c2cb', transition: 'width 0.3s ease' }}></div>
+                                            </div>
+                                            <div className="scan-flare absolute top-1/2 -ml-[25px]" style={{ left: `${Math.round((checkpoints.filter(c => c.status === 'pass' || c.status === 'fail').length / checkpoints.length) * 100)}%`, width: '50px', height: '30px', background: 'radial-gradient(ellipse at center, rgba(0,194,203,0.8) 0%, transparent 70%)', transform: 'translateY(-50%)' }}></div>
+                                        </div>
+                                        <p className="upload-title text-[#e8ecf4] mt-6 tracking-[1px] text-[11px] uppercase font-bold text-[#00c2cb]">
+                                            {checkpoints.find(c => c.status === 'processing')?.label || checkpoints.find(c => c.status === 'pending')?.label || 'FINALIZATION'}...
+                                        </p>
+                                    </div>
+                                )}
+                                <input ref={fileRef} type="file" className="hidden" accept=".pdf,.png,.jpg,.jpeg,.tiff,.webp,.bmp" onChange={e => { const f = e.target.files?.[0]; if (f) runSinglePipeline(f); e.target.value = ''; }} />
+                            </div>
+
+                            {singleStatus !== "idle" && (
+                                <div className="mt-8">
+                                    <div className="pipeline-stepper">
+                                        <div className="pipeline-header">
+                                            <span className="pipeline-label">Analysis Pipeline</span>
+                                            <span className="pipeline-engine">PaddleOCR Engine</span>
+                                        </div>
+                                        <div className="steps-row">
+                                            {checkpoints.map((cp, i) => (
+                                                <div className="step" key={cp.id}>
+                                                    <div className={`step-icon ${cp.status}`}>
+                                                        {cp.status === 'processing' && <div className="step-spinner" />}
+                                                        {cp.status === 'pass' && <span>✓</span>}
+                                                        {cp.status === 'fail' && <span>✗</span>}
+                                                        {cp.status === 'pending' && <span>{i + 1}</span>}
+                                                    </div>
+                                                    {i < checkpoints.length - 1 && (
+                                                        <div className={`step-line ${cp.status === 'pass' ? 'active' : ''}`} />
+                                                    )}
+                                                    <div className="step-label">{cp.label}</div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {singleStatus === "complete" && singleResult && (
+                                        <div>
+                                            <div className={`verdict-banner ${singleResult.status}`}>
+                                                <div className="verdict-icon">
+                                                    {singleResult.status === 'valid' ? (
+                                                        <svg width="32" height="32" viewBox="0 0 32 32" fill="none"><path d="M16 2L30 8V18Q30 26 16 30Q2 26 2 18V8Z" fill="rgba(0,200,83,0.15)" stroke="#00c853" strokeWidth="1.5" /><path d="M10 16L14 20L22 12" stroke="#00c853" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                                                    ) : singleResult.status === 'invalid' ? (
+                                                        <svg width="32" height="32" viewBox="0 0 32 32" fill="none"><path d="M16 2L30 8V18Q30 26 16 30Q2 26 2 18V8Z" fill="rgba(255,23,68,0.15)" stroke="#ff1744" strokeWidth="1.5" /><path d="M12 12L20 20M20 12L12 20" stroke="#ff1744" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                                                    ) : (
+                                                        <svg width="32" height="32" viewBox="0 0 32 32" fill="none"><path d="M16 2L30 8V18Q30 26 16 30Q2 26 2 18V8Z" fill="rgba(255,171,0,0.15)" stroke="#ffab00" strokeWidth="1.5" /><path d="M16 10V18M16 22H16.01" stroke="#ffab00" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                                                    )}
+                                                </div>
+                                                <div>
+                                                    <div className="verdict-title">{singleResult.status === 'valid' ? 'VALID DOCUMENT' : singleResult.status === 'invalid' ? 'INVALID / FAKE DOCUMENT' : singleResult.status === 'partial' ? 'PARTIAL RESULT' : 'NOT VEHICLE'}</div>
+                                                    <div className="verdict-sub">{singleResult.statusMessage}</div>
+                                                </div>
+                                                {singleResult.status === 'valid' && <div className="verdict-pulse" />}
+                                            </div>
+
+                                            {(singleResult.status !== 'skipped' && singleResult.status !== 'error') && (
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                    <div className="data-card" style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
+                                                        <div className="flex-1">
+                                                            <div className="data-card-label">CHASSIS / VIN</div>
+                                                            <div className={`data-card-value ${singleResult.chassis?.is_valid === false ? 'invalid-value' : ''}`}>{renderChassisValue(singleResult.chassis?.value || null)}</div>
+                                                            <div className="data-card-meta">
+                                                                {singleResult.chassis?.value && <span className="meta-badge">{(singleResult.chassis.value ? singleResult.chassis.value.length : 0)} chars</span>}
+                                                                {singleResult.chassis?.manufacturer && <span className="meta-badge manufacturer">{singleResult.chassis.manufacturer}</span>}
+                                                                {singleResult.chassis?.value && validateVINChecksum(singleResult.chassis.value) && (
+                                                                    <span className="meta-badge checksum-pass">CSUM VALIDATED ✓</span>
+                                                                )}
+                                                                {singleResult.chassis?.value && !validateVINChecksum(singleResult.chassis.value) && singleResult.chassis.value.length === 17 && (
+                                                                    <span className="meta-badge checksum-fail">CSUM INVALID ✗</span>
+                                                                )}
+                                                            </div>
+                                                            {singleResult.chassis?.is_valid === false && <div className="mt-3 text-[#ff1744] text-xs font-mono font-bold">REASON: {singleResult.chassis?.rejection_reason}</div>}
+                                                            {singleResult.chassis?.value && <VINBreakdown vin={singleResult.chassis.value} />}
+                                                        </div>
+                                                        {(singleResult.chassis?.confidence ?? 0) > 0 && <ConfidenceRing value={singleResult.chassis?.confidence ?? 0} label="CHASSIS" color={(singleResult.chassis?.confidence ?? 0) > 80 ? '#00c853' : (singleResult.chassis?.confidence ?? 0) > 50 ? '#ffab00' : '#ff1744'} />}
+                                                    </div>
+                                                    <div className="data-card" style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
+                                                        <div className="flex-1">
+                                                            <div className="data-card-label">REGISTRATION</div>
+                                                            <div className="data-card-value">{renderRegValue(singleResult.registration?.value || null)}</div>
+                                                            <div className="data-card-meta">
+                                                                {singleResult.registration?.state && <span className="meta-badge state">{singleResult.registration.state}</span>}
+                                                            </div>
+                                                        </div>
+                                                        {(singleResult.registration?.confidence ?? 0) > 0 && <ConfidenceRing value={singleResult.registration?.confidence ?? 0} label="REG" color={(singleResult.registration?.confidence ?? 0) > 80 ? '#00c853' : (singleResult.registration?.confidence ?? 0) > 50 ? '#ffab00' : '#ff1744'} />}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
+                        {compareMode && (
+                            <div style={{ background: '#0a0d14', border: '1px solid #1e2535', borderRadius: 16, padding: 24, display: 'flex', flexDirection: 'column' }}>
+                                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.5, color: '#00c2cb', textTransform: 'uppercase', marginBottom: 20, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                    <span>Compare Reference</span>
+                                    {compareThumbnail && <span style={{ color: '#4a5568', fontSize: 9 }}>Visual Match Targeting</span>}
+                                </div>
+                                {compareThumbnail ? (
+                                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                                        <div style={{ flex: 1, background: '#050810', borderRadius: 12, border: '1px solid #1e2535', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, minHeight: 400 }}>
+                                            <img src={compareThumbnail} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} alt="Compare target" />
+                                        </div>
+                                        <button onClick={() => { setCompareThumbnail(null); setCompareResult(null); }} className="upload-btn mt-4 w-full h-12" style={{ background: 'rgba(255,23,68,0.05)', borderColor: 'rgba(255,23,68,0.3)', color: '#ff5252' }}>
+                                            Clear Reference Document
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <div className="upload-zone" style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: 400 }} onClick={() => compareFileRef.current?.click()}>
+                                        <div className="empty-state" style={{ padding: '20px 0', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                                            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#4a5568" strokeWidth="1.5" strokeDasharray="4 4" className="animate-pulse">
+                                                <rect x="3" y="3" width="18" height="18" rx="2" />
+                                                <line x1="12" y1="8" x2="12" y2="16" />
+                                                <line x1="8" y1="12" x2="16" y2="12" />
+                                            </svg>
+                                        </div>
+                                        <p className="upload-title text-sm text-[#4a5568]">Add reference scan for visual comparison</p>
+                                        <p className="upload-sub text-[10px]">E.g., Back side of identity, Reference copy</p>
+                                        <input ref={compareFileRef} type="file" className="hidden" accept=".pdf,.png,.jpg,.jpeg,.tiff,.webp" onChange={async e => {
+                                            const f = e.target.files?.[0];
+                                            if (f) {
+                                                const thumb = await generateThumbnail(f);
+                                                setCompareThumbnail(thumb);
+                                            }
+                                            e.target.value = '';
+                                        }} />
                                     </div>
                                 )}
                             </div>
@@ -931,10 +1315,40 @@ export function VehicleModule() {
                                         </div>
                                     );
                                 })()}
-                                <div className="flex justify-between items-end mb-4">
-                                    <h2 className="text-xl font-bold uppercase tracking-widest text-white">Batch Results</h2>
+                                {duplicateAlerts.length > 0 && (
+                                    <div style={{ background: 'rgba(255,23,68,0.1)', border: '1px solid rgba(255,23,68,0.3)', borderRadius: 12, padding: '16px 20px', marginBottom: 24, display: 'flex', gap: 16, alignItems: 'center', animation: 'shake 0.5s ease' }}>
+                                        <div style={{ width: 40, height: 40, borderRadius: '50%', background: '#ff1744', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: '0 0 15px rgba(255,23,68,0.4)' }}>
+                                            <span className="material-symbols-outlined" style={{ color: '#fff', fontSize: 20 }}>warning</span>
+                                        </div>
+                                        <div style={{ flex: 1 }}>
+                                            <div style={{ fontSize: 13, fontWeight: 800, color: '#ff5252', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Duplicate Chassis Detected</div>
+                                            <div style={{ fontSize: 11, color: '#e8ecf4cc', marginTop: 4, lineHeight: 1.5 }}>
+                                                {duplicateAlerts.map(([chassis, files]) => (
+                                                    <div key={chassis}>• <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#fff' }}>{chassis}</span> found in: {files.join(', ')}</div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                <div className="flex justify-between items-end mb-4 relative">
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                                        <h2 className="text-xl font-bold uppercase tracking-widest text-white">Batch Results</h2>
+                                        <div style={{ background: '#0a0d14', border: '1px solid #1e2535', borderRadius: 30, padding: '6px 12px', display: 'flex', gap: 16, alignItems: 'center', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>
+                                            <span style={{ color: '#00c853' }}>✓ {validCount}</span>
+                                            <span style={{ color: '#ffab00' }}>⚠ {partialCount}</span>
+                                            <span style={{ color: '#ff1744' }}>✗ {invalidCount}</span>
+                                        </div>
+                                    </div>
                                     {batchStatus === 'complete' && (
                                         <div style={{ display: 'flex', borderRadius: 8, overflow: 'hidden' }}>
+                                            <button onClick={() => setShowCaseModal(true)} style={{ background: '#00c2cb', color: '#000', padding: '0 20px', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px', cursor: 'pointer', border: 'none', height: '100%', display: 'flex', alignItems: 'center', gap: 8, borderRight: '1px solid #00000022' }}>
+                                                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>folder_open</span>
+                                                Save as Case
+                                            </button>
+                                            <button onClick={() => printReport(batchRows)} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRight: 'none', color: '#e8ecf4', padding: '8px 14px', fontSize: 11, fontWeight: 700, cursor: 'pointer', letterSpacing: '1px', transition: 'all 0.2s' }} onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'} onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}>
+                                                PRINT PDF
+                                            </button>
                                             <button onClick={exportCSV} style={{ background: 'rgba(0,194,203,0.1)', border: '1px solid rgba(0,194,203,0.3)', borderRight: 'none', color: '#00c2cb', padding: '8px 16px', fontSize: 11, fontWeight: 700, cursor: 'pointer', letterSpacing: '1px', display: 'flex', alignItems: 'center', gap: 6, transition: 'all 0.2s' }} onMouseEnter={e => e.currentTarget.style.background = 'rgba(0,194,203,0.18)'} onMouseLeave={e => e.currentTarget.style.background = 'rgba(0,194,203,0.1)'}>
                                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
                                                 EXPORT CSV
@@ -984,8 +1398,13 @@ export function VehicleModule() {
                                                                         <button onClick={() => toggleRowExpand(row.index)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', marginTop: 1, transition: 'transform 0.2s, color 0.2s', transform: expandedRows.has(row.index) ? 'rotate(180deg)' : 'rotate(0deg)', color: expandedRows.has(row.index) ? '#00c2cb' : '#4a5568', flexShrink: 0 }}>
                                                                             <ChevronDown size={14} />
                                                                         </button>
+                                                                        {row.thumbnail ? (
+                                                                            <img src={row.thumbnail} style={{ width: 36, height: 46, objectFit: 'cover', borderRadius: 4, border: '1px solid #1e2535' }} alt="" />
+                                                                        ) : (
+                                                                            <FileTypeIcon fileName={row.fileName} />
+                                                                        )}
                                                                         <div>
-                                                                            <div style={{ fontWeight: 700, fontSize: 14, color: '#e8ecf4', textTransform: 'uppercase', letterSpacing: '0.5px' }} className="truncate w-42" title={row.fileName}>{row.fileName}</div>
+                                                                            <div style={{ fontWeight: 700, fontSize: 14, color: '#e8ecf4', textTransform: 'uppercase', letterSpacing: '0.5px', maxWidth: 160, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={row.fileName}>{row.fileName}</div>
                                                                             <div style={{ fontSize: 11, color: '#4a5568', marginTop: 2 }}>
                                                                                 {(row.fileSize / 1024).toFixed(1)} KB
                                                                             </div>
@@ -1072,6 +1491,7 @@ export function VehicleModule() {
                                                                                             </span>
                                                                                             <CopyButton value={row.chassis || ''} />
                                                                                         </div>
+                                                                                        <VINBreakdown vin={row.chassis} />
                                                                                         {row.status !== 'invalid' && (
                                                                                             <React.Fragment>
                                                                                                 <div style={{ fontSize: 11, color: '#4a5568', marginBottom: 6 }}>
@@ -1183,7 +1603,98 @@ export function VehicleModule() {
                         </div>
                     ))}
                 </div>
+
+                {/* Case Creation Modal */}
+                {showCaseModal && (
+                    <div style={{ position: 'fixed', inset: 0, zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(10px)' }}>
+                        <div style={{ width: 440, background: '#10131c', border: '1px solid #1e2535', borderRadius: 24, padding: 32, boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)' }}>
+                            <h3 style={{ fontSize: 18, fontWeight: 900, color: '#e8ecf4', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 8 }}>Initialize New Case</h3>
+                            <p style={{ fontSize: 12, color: '#4a5568', marginBottom: 24 }}>Archive current batch results into a forensic case file for persistent tracking.</p>
+
+                            <div style={{ marginBottom: 20 }}>
+                                <label style={{ display: 'block', fontSize: 10, fontWeight: 800, color: '#4a5568', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 8 }}>Case Name / ID</label>
+                                <input value={newCaseName} onChange={e => setNewCaseName(e.target.value)} placeholder="e.g. MH-2024-AUG-B1" style={{ width: '100%', background: '#050810', border: '1px solid #1e2535', borderRadius: 12, padding: '14px 18px', color: '#e8ecf4', fontSize: 13, outline: 'none' }} />
+                            </div>
+
+                            <div style={{ marginBottom: 30 }}>
+                                <label style={{ display: 'block', fontSize: 10, fontWeight: 800, color: '#4a5568', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 8 }}>Case Description</label>
+                                <textarea value={newCaseDesc} onChange={e => setNewCaseDesc(e.target.value)} placeholder="Forensic audit for inventory verification..." style={{ width: '100%', background: '#050810', border: '1px solid #1e2535', borderRadius: 12, padding: '14px 18px', color: '#e8ecf4', fontSize: 13, outline: 'none', height: 100, resize: 'none' }} />
+                            </div>
+
+                            <div style={{ display: 'flex', gap: 12 }}>
+                                <button onClick={() => setShowCaseModal(false)} style={{ flex: 1, background: 'transparent', border: '1px solid #1e2535', color: '#e8ecf4', padding: '14px', borderRadius: 12, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px', cursor: 'pointer' }}>Cancel</button>
+                                <button onClick={() => {
+                                    const newCase: VehicleCase = {
+                                        id: `CASE-${Date.now()}`,
+                                        name: newCaseName || 'Unnamed Case',
+                                        description: newCaseDesc,
+                                        createdAt: new Date().toISOString(),
+                                        status: 'open',
+                                        files: batchRows.map(r => ({
+                                            name: r.fileName,
+                                            chassis: r.chassis,
+                                            registration: r.registration,
+                                            status: r.status,
+                                            manufacturer: r.chassisManufacturer || null
+                                        }))
+                                    };
+                                    const updated = [...cases, newCase];
+                                    setCases(updated);
+                                    localStorage.setItem('verentis_cases', JSON.stringify(updated));
+                                    setShowCaseModal(false);
+                                    addNotification('success', 'Case Created', `Case ${newCase.name} has been archived successfully.`);
+
+                                    // Audit Log Entry
+                                    const audit = JSON.parse(localStorage.getItem('verentis_audit') || '[]');
+                                    const entries: AuditEntry[] = batchRows.map(r => ({
+                                        caseId: newCase.id,
+                                        timestamp: new Date().toISOString(),
+                                        fileName: r.fileName,
+                                        fileSize: r.fileSize,
+                                        chassis: r.chassis,
+                                        registration: r.registration,
+                                        status: r.status,
+                                        extractionMethod: r.chassisSource || 'OCR',
+                                        invalidReason: r.chassisRejectionReason || null,
+                                        resultHash: simpleHash(`${r.chassis}${r.registration}${r.status}`)
+                                    }));
+                                    localStorage.setItem('verentis_audit', JSON.stringify([...audit, ...entries]));
+                                }} style={{ flex: 2, background: '#00c2cb', border: 'none', color: '#000', padding: '14px', borderRadius: 12, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px', cursor: 'pointer' }}>Create Case File</button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Onboarding Tour Overlay */}
+                {tourStep >= 0 && (
+                    <div style={{ position: 'fixed', inset: 0, zIndex: 20000, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <div style={{ width: 400, background: '#10131c', border: '1px solid #00c2cb', borderRadius: 24, padding: 32, boxShadow: '0 0 50px rgba(0,194,203,0.3)', position: 'relative', animation: 'splashSlideUp 0.5s ease' }}>
+                            <div style={{ fontSize: 9, fontWeight: 900, color: '#00c2cb', textTransform: 'uppercase', letterSpacing: '4px', marginBottom: 12 }}>Step {tourStep + 1} of 4</div>
+                            <h2 style={{ fontSize: 24, fontWeight: 900, color: '#e8ecf4', marginBottom: 12, letterSpacing: '-0.5px' }}>{TOUR_STEPS[tourStep].title}</h2>
+                            <p style={{ fontSize: 13, color: '#e8ecf4cc', lineHeight: 1.6, marginBottom: 32 }}>{TOUR_STEPS[tourStep].body}</p>
+
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <button onClick={() => { setTourStep(-1); localStorage.setItem('verentis_toured', 'true'); }} style={{ background: 'transparent', border: 'none', color: '#4a5568', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px', cursor: 'pointer' }}>Skip Tour</button>
+                                <button onClick={() => {
+                                    if (tourStep < 3) setTourStep(tourStep + 1);
+                                    else {
+                                        setTourStep(-1);
+                                        localStorage.setItem('verentis_toured', 'true');
+                                        addNotification('info', 'Tour Finished', 'Welcome to the platform. You are ready to start scanning.');
+                                    }
+                                }} style={{ background: '#00c2cb', border: 'none', color: '#000', padding: '12px 24px', borderRadius: 10, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px', cursor: 'pointer' }}>
+                                    {tourStep < 3 ? 'Next Step' : 'Get Started'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                <div style={{ marginTop: '40px', paddingTop: 20, borderTop: '1px solid #1e2535', display: 'flex', alignItems: 'center', gap: 16 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#4a5568', textTransform: 'uppercase', letterSpacing: '1px' }}>Night Mode Intensity</div>
+                    <input type="range" min="30" max="100" defaultValue="100" onChange={e => { document.getElementById('vehicle-module-root')!.style.filter = `brightness(${e.target.value}%)`; }} style={{ flex: 1, height: 4, background: '#1e2535', borderRadius: 2, appearance: 'none', outline: 'none' }} />
+                </div>
             </div>
-        </div>
+        </div >
     );
 }

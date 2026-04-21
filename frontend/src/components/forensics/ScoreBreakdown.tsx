@@ -11,6 +11,8 @@ interface Checkpoint {
     contribution: number;
     status: "PASSED" | "FAILED" | "WARNING";
     reason?: string;
+    priority?: string;
+    detected_value?: string;
     bbox?: number[];
     page?: number;
 }
@@ -67,10 +69,10 @@ export function ScoreBreakdown({ checkpoints, finalScore, isCheckpointBased, ver
                         <table className="w-full text-[10px] text-left mb-2">
                             <thead className="bg-secondary/50 text-muted-foreground font-black uppercase tracking-tighter">
                                 <tr>
-                                    <th className="px-3 py-2">Checkpoint Name</th>
-                                    <th className="px-2 py-2 text-center">Status</th>
-                                    <th className="px-3 py-2">Reason</th>
-                                    <th className="px-3 py-2 text-right">Score Contribution</th>
+                                    <th className="px-3 py-2 border-r border-border/10">Checkpoint Info</th>
+                                    <th className="px-2 py-2 text-center border-r border-border/10">Status</th>
+                                    <th className="px-2 py-2 border-r border-border/10" style={{ color: '#00c2cb' }}>Detected Evidence</th>
+                                    <th className="px-3 py-2">Justification</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-border/30">
@@ -83,8 +85,19 @@ export function ScoreBreakdown({ checkpoints, finalScore, isCheckpointBased, ver
                                             cp.status !== "PASSED" ? "cursor-pointer" : ""
                                         )}
                                     >
-                                        <td className="px-3 py-2 font-medium text-foreground/80">{cp.name}</td>
-                                        <td className="px-2 py-2">
+                                        <td className="px-3 py-2 border-r border-border/10">
+                                            <div className="font-bold text-foreground/90">{cp.name}</div>
+                                            {cp.priority && (
+                                                <div className={cn(
+                                                    "text-[8px] font-black tracking-widest uppercase mt-0.5 inline-block px-1.5 py-[1px] rounded",
+                                                    cp.priority === "CRITICAL" ? "bg-destructive/10 text-destructive" : 
+                                                    cp.priority === "HIGH" ? "bg-warning/10 text-warning" : "bg-primary/10 text-primary"
+                                                )}>
+                                                    PRIORITY: {cp.priority}
+                                                </div>
+                                            )}
+                                        </td>
+                                        <td className="px-2 py-2 border-r border-border/10">
                                             <div className="flex items-center justify-center gap-1.5">
                                                 {getStatusIcon(cp.status)}
                                                 <span className={cn(
@@ -96,10 +109,23 @@ export function ScoreBreakdown({ checkpoints, finalScore, isCheckpointBased, ver
                                                 </span>
                                             </div>
                                         </td>
-                                        <td className="px-3 py-2 text-muted-foreground">{cp.reason || "Validation completed"}</td>
-                                        <td className="px-3 py-2 text-right font-mono font-bold text-primary">
-                                            {cp.contribution}%
+                                        <td
+                                            className="px-2 py-2 border-r border-border/10"
+                                            title={cp.detected_value || '—'}
+                                            style={{
+                                                fontFamily: 'monospace',
+                                                fontSize: 10,
+                                                fontWeight: 700,
+                                                color: cp.status === 'PASSED' ? 'var(--success)' : cp.status === 'FAILED' ? 'var(--destructive)' : 'var(--warning)',
+                                                maxWidth: 160,
+                                                overflow: 'hidden',
+                                                textOverflow: 'ellipsis',
+                                                whiteSpace: 'nowrap'
+                                            }}
+                                        >
+                                            {cp.detected_value || '—'}
                                         </td>
+                                        <td className="px-3 py-2 text-muted-foreground">{cp.reason || "Validation completed"}</td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -139,19 +165,19 @@ export function ScoreBreakdown({ checkpoints, finalScore, isCheckpointBased, ver
                                 <div className="pt-2 border-t border-border/40">
                                     <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-2">Final Classification Logic:</h4>
                                     <div className="flex gap-4 font-mono text-[10px]">
-                                        <div className="flex items-center gap-1.5">
+                                        <div className="flex items-center gap-1.5 whitespace-nowrap">
                                             <span className="w-1.5 h-1.5 rounded-full bg-success ring-2 ring-success/20"></span>
-                                            <span className="text-muted-foreground">0 failures <span className="text-border">→</span></span>
-                                            <span className="font-bold text-success">REAL</span>
+                                            <span className="text-muted-foreground">0 Failures <span className="text-border">→</span></span>
+                                            <span className="font-bold text-success">GENUINE</span>
                                         </div>
-                                        <div className="flex items-center gap-1.5">
+                                        <div className="flex items-center gap-1.5 whitespace-nowrap">
                                             <span className="w-1.5 h-1.5 rounded-full bg-warning ring-2 ring-warning/20"></span>
-                                            <span className="text-muted-foreground">1 failure <span className="text-border">→</span></span>
+                                            <span className="text-muted-foreground">1 Fail or 3+ Warn <span className="text-border">→</span></span>
                                             <span className="font-bold text-warning">SUSPICIOUS</span>
                                         </div>
-                                        <div className="flex items-center gap-1.5">
+                                        <div className="flex items-center gap-1.5 whitespace-nowrap">
                                             <span className="w-1.5 h-1.5 rounded-full bg-destructive ring-2 ring-destructive/20 animate-pulse"></span>
-                                            <span className="text-muted-foreground">2+ failures <span className="text-border">→</span></span>
+                                            <span className="text-muted-foreground">2+ Fails OR 1 CRITICAL <span className="text-border">→</span></span>
                                             <span className="font-bold text-destructive">FAKE</span>
                                         </div>
                                     </div>
