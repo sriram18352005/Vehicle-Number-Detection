@@ -13,6 +13,13 @@ import hashlib
 import re
 from PIL import Image
 
+st.set_page_config(
+    page_title="Verentis",
+    page_icon="🛡️",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
 try:
     import pdfplumber
 except ImportError:
@@ -79,6 +86,11 @@ code {
 p, span, label {
     font-weight: 500;
 }
+.stTextInput label p {
+    font-weight: 600 !important;
+    color: #0a0f1e !important;
+    font-size: 14px !important;
+}
 .stMarkdown {
     color: inherit;
 }
@@ -90,149 +102,88 @@ p, span, label {
     color: var(--text-main) !important;
     font-weight: 700 !important;
 }
+.stTextInput label, .stSelectbox label, .stFileUploader label {
+    color: var(--text-main) !important;
+    font-weight: 700 !important;
+    font-size: 16px !important;
+}
 section[data-testid="stSidebar"] {
     background-color: #1a1a2e !important;
 }
 section[data-testid="stSidebar"] * {
     color: #ffffff !important;
 }
-.stButton > button,
-[data-testid="stDownloadButton"] button,
-[data-testid="baseButton-secondary"],
-[data-testid="baseButton-primary"] {
-    background: linear-gradient(
-        135deg, #00d4aa, #00b894
-    ) !important;
-    color: #0a0f1e !important;
-    border: none !important;
-    border-radius: 10px !important;
-    font-weight: 700 !important;
-    font-size: 14px !important;
+/* Button Text Specificity Fix */
+div.stButton > button p {
+    font-weight: 800 !important;
+    font-size: 17px !important;
+    color: inherit !important;
 }
-.stButton > button:hover,
-[data-testid="stDownloadButton"] button:hover {
-    color: #ffffff !important;
-    border: none !important;
-}
-.stTabs [data-baseweb="tab"] {
-    font-weight: 600 !important;
-    font-size: 14px !important;
-    color: var(--text-muted) !important;
-}
-.stTabs [aria-selected="true"] {
-    color: #00d4aa !important;
-    border-bottom: 2px solid #00d4aa !important;
-    background: transparent !important;
-}
-.main .block-container {
-    padding-top: 1rem !important;
-    padding-left: 2.5rem !important;
-    padding-right: 2.5rem !important;
-    max-width: 1200px !important;
-}
-[data-testid="stFileUploader"] {
-    background-color: transparent !important;
-}
-[data-testid="stFileUploadDropzone"] {
-    background-color: var(--card-bg) !important;
-    border: 2px dashed var(--card-border) !important;
-    border-radius: 12px !important;
-}
-[data-testid="stFileUploader"] *, [data-testid="stFileUploadDropzone"] * {
-    color: var(--text-main) !important;
-}
-[data-testid="stFileUploadDropzone"] * {
-    background-color: transparent !important;
-}
-[data-testid="stFileUploadDropzone"] button {
-    background-color: var(--info-border) !important;
-    color: #ffffff !important;
-    border: none !important;
-    border-radius: 6px !important;
-}
-</style>
-"""
 
-dark_css = """
-<style>
-:root, html, body {
-    --page-bg: #0a0f1e;
-    --card-bg: #0d1526;
-    --card-border: #1a2744;
-    --info-bg: #0d1526;
-    --info-border: #00d4aa;
-    --text-main: #ffffff;
-    --text-muted: #8aa4c0;
+/* Standard Secondary Buttons (Inactive tabs, etc) */
+div.stButton > button,
+div.stButton > button[data-testid="baseButton-secondary"],
+div.stButton > button[data-testid="stBaseButton-secondary"] {
+    background: #ffffff !important;
+    color: #1f2937 !important;
+    border: 1.5px solid #1f2937 !important;
+    border-radius: 10px !important;
+    white-space: nowrap !important;
+    padding: 10px 20px !important;
 }
-.stApp, [data-testid="stAppViewContainer"], html, body {
-    background-color: var(--page-bg) !important;
-    color: var(--text-main);
+div.stButton > button:hover,
+div.stButton > button[data-testid="baseButton-secondary"]:hover,
+div.stButton > button[data-testid="stBaseButton-secondary"]:hover {
+    background: #f3f4f6 !important;
+    color: #111827 !important;
+    border-color: #111827 !important;
 }
-[data-testid="stHeader"] {
-    background-color: transparent !important;
+
+/* Primary Buttons (Main Actions) */
+div.stButton > button[data-testid="baseButton-primary"],
+div.stButton > button[data-testid="stBaseButton-primary"],
+[data-testid="stDownloadButton"] button {
+    background: #ffffff !important;
+    color: #1f2937 !important;
+    border: 1.5px solid #1f2937 !important;
+    border-radius: 10px !important;
+    white-space: nowrap !important;
+    padding: 10px 20px !important;
 }
-div[data-testid="stDecoration"] {
+div.stButton > button[data-testid="baseButton-primary"]:hover,
+div.stButton > button[data-testid="stBaseButton-primary"]:hover,
+[data-testid="stDownloadButton"] button:hover {
+    background: #f3f4f6 !important;
+    color: #111827 !important;
+    border-color: #111827 !important;
+}
+
+/* Sidebar Buttons Specific Styling */
+section[data-testid="stSidebar"] div.stButton > button,
+section[data-testid="stSidebar"] div.stButton > button[data-testid="baseButton-secondary"],
+section[data-testid="stSidebar"] div.stButton > button[data-testid="stBaseButton-secondary"],
+section[data-testid="stSidebar"] div.stButton > button[data-testid="baseButton-primary"],
+section[data-testid="stSidebar"] div.stButton > button[data-testid="stBaseButton-primary"] {
+    background: transparent !important;
+    color: #8aa4c0 !important;
+    border: 1px solid #2a3a5c !important;
+}
+section[data-testid="stSidebar"] div.stButton > button:hover {
+    background: #2a3a5c !important;
+    color: #ffffff !important;
+}
+[data-testid="InputInstructions"] {
     display: none !important;
 }
-code {
-    background-color: var(--card-bg) !important;
-    color: var(--text-main) !important;
-    border: 1px solid var(--card-border) !important;
-    padding: 2px 6px !important;
-    border-radius: 4px !important;
-}
-.stMarkdown {
-    color: inherit;
-}
-.stApp h1, .stApp h2, .stApp h3 {
-    color: var(--text-main) !important;
-}
-section[data-testid="stSidebar"] {
-    background-color: var(--card-bg) !important;
-    border-right: 1px solid var(--card-border) !important;
-}
-section[data-testid="stSidebar"] * {
-    color: var(--text-main) !important;
-}
-.stButton > button,
-[data-testid="stDownloadButton"] button,
-[data-testid="baseButton-secondary"],
-[data-testid="baseButton-primary"] {
-    background: linear-gradient(
-        135deg, #00d4aa, #00b894
-    ) !important;
-    color: #0a0f1e !important;
-    border: none !important;
-    border-radius: 10px !important;
-    font-weight: 700 !important;
-}
-.stButton > button:hover,
-[data-testid="stDownloadButton"] button:hover {
-    color: #ffffff !important;
-    border: none !important;
-}
-div[data-testid="stMetric"] {
-    background-color: var(--card-bg) !important;
-    border: 0.5px solid var(--card-border) !important;
-    border-radius: 12px !important;
-    padding: 16px !important;
-}
-div[data-testid="stMetric"] * {
-    color: var(--text-main) !important;
-}
 .stTabs [data-baseweb="tab"] {
-    color: var(--text-muted) !important;
     font-weight: 600 !important;
+    font-size: 14px !important;
+    color: var(--text-muted) !important;
 }
 .stTabs [aria-selected="true"] {
     color: #00d4aa !important;
     border-bottom: 2px solid #00d4aa !important;
     background: transparent !important;
-}
-.stTextInput > div > div > input {
-    background-color: var(--card-bg) !important;
-    color: var(--text-main) !important;
-    border: 0.5px solid var(--card-border) !important;
 }
 .main .block-container {
     padding-top: 1rem !important;
@@ -243,18 +194,26 @@ div[data-testid="stMetric"] * {
 [data-testid="stFileUploader"] {
     background-color: transparent !important;
 }
-[data-testid="stFileUploadDropzone"] {
+section[data-testid="stFileUploadDropzone"], div[data-testid="stFileUploadDropzone"] {
     background-color: var(--card-bg) !important;
     border: 2px dashed var(--card-border) !important;
     border-radius: 12px !important;
 }
-[data-testid="stFileUploader"] *, [data-testid="stFileUploadDropzone"] * {
+[data-testid="stFileUploader"] *, section[data-testid="stFileUploadDropzone"] * {
     color: var(--text-main) !important;
 }
-[data-testid="stFileUploadDropzone"] * {
+section[data-testid="stFileUploadDropzone"] * {
     background-color: transparent !important;
 }
-[data-testid="stFileUploadDropzone"] button {
+section[data-testid="stFileUploadDropzone"] small {
+    font-size: 13px !important;
+    font-weight: 600 !important;
+}
+section[data-testid="stFileUploadDropzone"] span {
+    font-size: 16px !important;
+    font-weight: 700 !important;
+}
+section[data-testid="stFileUploadDropzone"] button {
     background-color: var(--info-border) !important;
     color: #ffffff !important;
     border: none !important;
@@ -264,10 +223,7 @@ div[data-testid="stMetric"] * {
 """
 
 def apply_theme_css():
-    if st.session_state.theme == 'dark':
-        st.markdown(dark_css, unsafe_allow_html=True)
-    else:
-        st.markdown(light_css, unsafe_allow_html=True)
+    st.markdown(light_css, unsafe_allow_html=True)
 
 apply_theme_css()
 
@@ -330,10 +286,11 @@ def get_user_role(username):
 def show_login():
     st.markdown("""
     <style>
-    .stApp,[data-testid="stAppViewContainer"],html,body{background-color:#0a0f1e !important;}
     [data-testid="stHeader"]{background:transparent !important;}
     div[data-testid="stDecoration"]{display:none !important;}
-    .main .block-container{padding-top:0 !important;padding-bottom:0 !important;max-width:100% !important;}
+    [data-testid="collapsedControl"] { display: none !important; }
+    section[data-testid="stSidebar"] { display: none !important; }
+    .main .block-container, [data-testid="stAppViewBlockContainer"] {padding-top:0 !important;padding-left:0 !important;padding-bottom:0 !important;max-width:100% !important;width:100% !important;margin:0 !important;}
     </style>
     """, unsafe_allow_html=True)
 
@@ -404,23 +361,14 @@ def show_login():
 
         st.markdown("""
         <div style='margin-bottom:28px;padding:0 4px'>
-            <div style='color:#ffffff;font-size:26px;font-weight:800;margin-bottom:6px'>Welcome back</div>
-            <div style='color:#8aa4c0;font-size:14px'>Sign in to your Verentis account to continue</div>
+            <div style='color:#0a0f1e;font-size:26px;font-weight:800;margin-bottom:6px'>Welcome back</div>
+            <div style='color:#546e7a;font-size:14px'>Sign in to your Verentis account to continue</div>
         </div>
         """, unsafe_allow_html=True)
 
         with st.form("login_form"):
-            st.markdown("<p style='color:#8aa4c0;font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:4px'>Email Address</p>", unsafe_allow_html=True)
-            username = st.text_input(
-                "Email", placeholder="you@verentis.com",
-                label_visibility="collapsed"
-            )
-            st.markdown("<p style='color:#8aa4c0;font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:4px;margin-top:14px'>Password</p>", unsafe_allow_html=True)
-            password = st.text_input(
-                "Password", type="password",
-                placeholder="Enter your password",
-                label_visibility="collapsed"
-            )
+            username = st.text_input("Email Address")
+            password = st.text_input("Password", type="password")
             st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
             submitted = st.form_submit_button("Sign In  →", use_container_width=True)
 
@@ -439,11 +387,11 @@ def show_login():
         st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
         col_a, col_b = st.columns(2)
         with col_a:
-            if st.button("Forgot Password?", use_container_width=True):
+            if st.button("Forgot Password", use_container_width=True):
                 st.session_state.page = 'forgot_password'
                 st.rerun()
         with col_b:
-            if st.button("Create Account", use_container_width=True):
+            if st.button("Register", use_container_width=True):
                 st.session_state.page = 'register'
                 st.rerun()
 
@@ -476,15 +424,17 @@ def show_registration_page():
         """, unsafe_allow_html=True)
         
         with st.form("register_form"):
-            reg_name = st.text_input("Full Name", placeholder="e.g. Sriram VV")
-            reg_email = st.text_input("Operator ID / Email", placeholder="vvsriram05@gmail.com")
-            reg_role = st.selectbox("Role", ["Forensic Officer", "Threat Analyst", "Lead Investigator"])
-            reg_pass = st.text_input("Access Token / Password", type="password", placeholder="Choose token")
-            reg_submit = st.form_submit_button("Register System Access", use_container_width=True)
+            reg_name = st.text_input("Full Name")
+            reg_email = st.text_input("Operator ID / Email")
+            reg_pass = st.text_input("Enter Password", type="password")
+            reg_confirm_pass = st.text_input("Confirm Password", type="password")
+            reg_submit = st.form_submit_button("Create Account", use_container_width=True)
             
         if reg_submit:
-            if not reg_name or not reg_email or not reg_pass:
+            if not reg_name or not reg_email or not reg_pass or not reg_confirm_pass:
                 st.error("All fields are required")
+            elif reg_pass != reg_confirm_pass:
+                st.error("Passwords do not match!")
             else:
                 users_file = os.path.join(os.path.dirname(__file__), 'data', 'users.json')
                 with open(users_file, 'r') as f:
@@ -498,7 +448,7 @@ def show_registration_page():
                     users.append({
                         "name": reg_name,
                         "email": reg_email,
-                        "role": reg_role,
+                        "role": "Operator",
                         "password": hashed
                     })
                     with open(users_file, 'w') as f:
@@ -629,24 +579,7 @@ def show_sidebar():
 
         st.markdown("---")
 
-        # Theme toggle
-        theme_label = (
-            "☀ Light Mode"
-            if st.session_state.theme == 'dark'
-            else "🌙 Dark Mode"
-        )
-        if st.button(
-            theme_label,
-            use_container_width=True
-        ):
-            st.session_state.theme = (
-                'dark'
-                if st.session_state.theme == 'light'
-                else 'light'
-            )
-            st.rerun()
 
-        st.markdown("---")
 
         # User profile
         name = st.session_state.get('user_name', 'User')
@@ -694,7 +627,7 @@ def show_vehicle_validation():
     margin-bottom:20px'>
     <h3 style='margin:0 0 4px 0;color:var(--text-main)'>
     Vehicle Identity Scan</h3>
-    <p style='color:var(--text-muted);font-size:13px;
+    <p style='color:var(--text-muted);font-size:15px;font-weight:600;
     margin:0'>Upload RC certificate, chassis plate
     image, or any vehicle document</p>
     </div>
@@ -1096,7 +1029,7 @@ def show_ticket_validation():
     margin-bottom:20px'>
     <h3 style='margin:0 0 4px 0;color:var(--text-main)'>
     Ticket Forensic Validation</h3>
-    <p style='color:var(--text-muted);font-size:13px;
+    <p style='color:var(--text-muted);font-size:16px;font-weight:700;
     margin:0'>
     Validate warranty, invoice, investigation
     and estimation documents</p>
@@ -1195,7 +1128,7 @@ print(filedialog.askdirectory(master=root, title='Select Ticket Folder'))
             
             if uploaded_files:
                 st.markdown(
-                    f"<p style='color:#00d4aa;font-weight:600;font-size:13px'>"
+                    f"<p style='color:#000000;font-weight:800;font-size:14px'>"
                     f"✅ {len(uploaded_files)} file(s) loaded from: {folder_path}</p>",
                     unsafe_allow_html=True
                 )
@@ -1281,6 +1214,8 @@ print(filedialog.askdirectory(master=root, title='Select Ticket Folder'))
 
         if result:
             update_forensic_stats(result)
+            log_status = "✅ SUCCESS" if result.get('verdict') == "ACCEPTED" else ("⚠ ANOMALY" if result.get('verdict') == "SUSPICIOUS" else "❌ REJECTED")
+            log_audit_action(f"Completed Single Ticket validation for #{ticket_id}", log_status)
             update_pipeline(len(pipeline_steps))
             st.session_state.ticket_result = result
             with st.expander("🔧 Debug — Raw API Response", expanded=False):
@@ -1324,9 +1259,9 @@ def display_ticket_results(result):
     verdict_icon = {'ACCEPTED':'✅','REJECTED':'❌','SUSPICIOUS':'⚠'}.get(verdict,'❓')
     verdict_color = {'ACCEPTED':'#00d4aa','REJECTED':'#ff4757','SUSPICIOUS':'#ffa502'}.get(verdict,'#ffffff')
     st.markdown(
-        f"<div style='padding:16px;background:#0d1526;border:1px solid #1a2744;border-radius:12px;margin-bottom:24px'>"
-        f"<h2 style='margin:0;color:#ffffff'>📄 Ticket ID: {ticket_id}</h2>"
-        f"<div style='margin-top:8px;font-size:16px;color:#8aa4c0'>"
+        f"<div style='padding:16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;margin-bottom:24px'>"
+        f"<h2 style='margin:0;color:#1f2937'>📄 Ticket ID: {ticket_id}</h2>"
+        f"<div style='margin-top:8px;font-size:16px;color:#64748b'>"
         f"<span style='color:{verdict_color};font-weight:700'>{verdict_icon} {verdict}</span> &nbsp;|&nbsp; {category}"
         f"</div></div>", unsafe_allow_html=True
     )
@@ -1922,18 +1857,18 @@ print(filedialog.askdirectory(master=root, title='Select Batch Folder'))
         justify-content:space-between;
         align-items:center'>
         <div>
-        <div style='color:var(--info-border);font-size:11px;
-        letter-spacing:0.1em;font-weight:600;
+        <div style='color:#1f2937;font-size:13px;
+        letter-spacing:0.1em;font-weight:800;
         margin-bottom:4px'>BATCH FOLDER</div>
-        <div style='color:var(--text-main);font-size:16px;
-        font-weight:700'>
+        <div style='color:#000000;font-size:18px;
+        font-weight:800'>
         {batch_name or "Uploaded Batch"}
         </div>
         </div>
         <div style='text-align:right'>
-        <div style='color:var(--info-border);font-size:24px;
+        <div style='color:#1f2937;font-size:32px;
         font-weight:800'>{len(groups)}</div>
-        <div style='color:var(--text-muted);font-size:12px'>
+        <div style='color:#475569;font-size:14px;font-weight:600'>
         Ticket folders detected</div>
         </div>
         </div>
@@ -1945,11 +1880,11 @@ print(filedialog.askdirectory(master=root, title='Select Batch Folder'))
             for tid in groups.keys():
                 file_count = len(groups[tid])
                 chips_html += (
-                    f"<span style='background:#0d3b1e;"
-                    f"color:#00d4aa;padding:4px 12px;"
-                    f"border-radius:20px;font-size:12px;"
-                    f"font-weight:600;margin:3px;display:"
-                    f"inline-block'>📁 {tid} "
+                    f"<span style='background:#f1f5f9;"
+                    f"color:#1f2937;padding:6px 14px;"
+                    f"border-radius:20px;font-size:14px;"
+                    f"font-weight:800;margin:4px;display:"
+                    f"inline-block;border:1px solid #cbd5e1'>📁 {tid} "
                     f"({file_count} files)</span>"
                 )
             st.markdown(
@@ -2010,14 +1945,14 @@ print(filedialog.askdirectory(master=root, title='Select Batch Folder'))
             for i, (tid, files) in enumerate(groups.items()):
                 # Update status
                 current_status.markdown(
-                    f"<div style='background:#0d1526;"
-                    f"border:1px solid #1a2744;"
+                    f"<div style='background:#f8fafc;"
+                    f"border:1px solid #e2e8f0;"
                     f"border-radius:8px;padding:10px 14px;"
                     f"margin:8px 0'>"
-                    f"<span style='color:#ffa502'>⏳</span> "
-                    f"<b style='color:#ffffff'>Processing "
+                    f"<span style='color:#b45309'>⏳</span> "
+                    f"<b style='color:#1f2937;font-size:15px'>Processing "
                     f"ticket {i+1}/{total}:</b> "
-                    f"<span style='color:#00d4aa'>{tid}</span>"
+                    f"<span style='color:#047857;font-weight:800;font-size:15px'>{tid}</span>"
                     f"</div>",
                     unsafe_allow_html=True
                 )
@@ -2035,11 +1970,11 @@ print(filedialog.askdirectory(master=root, title='Select Batch Folder'))
                     files_count = len(result.get('detected_files',[]))
 
                     verdict_colors = {
-                        'ACCEPTED': ('#0d3b1e','#00d4aa'),
-                        'REJECTED': ('#3b0d0d','#ff4757'),
-                        'SUSPICIOUS': ('#3b2200','#ffa502')
+                        'ACCEPTED': ('#ecfdf5','#047857'),
+                        'REJECTED': ('#fef2f2','#b91c1c'),
+                        'SUSPICIOUS': ('#fffbeb','#b45309')
                     }
-                    bg, color = verdict_colors.get(verdict, ('#1a2744','#8aa4c0'))
+                    bg, color = verdict_colors.get(verdict, ('#f1f5f9','#1f2937'))
 
                     with results_container:
                         st.markdown(
@@ -2052,14 +1987,14 @@ print(filedialog.askdirectory(master=root, title='Select Batch Folder'))
                             f"<div>"
                             f"<span style='color:{color};"
                             f"font-weight:700'>✓ {tid}</span>"
-                            f"<span style='color:#8aa4c0;"
+                            f"<span style='color:#475569;"
                             f"font-size:12px;margin-left:12px'>"
                             f"{category}</span>"
                             f"</div>"
                             f"<div style='text-align:right'>"
                             f"<span style='color:{color};"
                             f"font-weight:700'>{verdict}</span>"
-                            f"<span style='color:#8aa4c0;"
+                            f"<span style='color:#475569;"
                             f"font-size:11px;margin-left:8px'>"
                             f"{files_count} files</span>"
                             f"</div></div>",
@@ -2072,6 +2007,8 @@ print(filedialog.askdirectory(master=root, title='Select Batch Folder'))
             current_status.success(f"✅ Batch complete — {total} tickets processed")
             for _r in all_results:
                 update_forensic_stats(_r)
+                log_status = "✅ SUCCESS" if _r.get('verdict') == "ACCEPTED" else ("⚠ ANOMALY" if _r.get('verdict') == "SUSPICIOUS" else "❌ REJECTED")
+                log_audit_action(f"Completed Ticket validation in Batch for #{_r.get('ticket_id')}", log_status)
             st.session_state.batch_results = all_results
 
     # Section 4 - Summary
@@ -2945,17 +2882,6 @@ def run_ticket_validation(files, ticket_id):
 
 
 def get_backend_url():
-    import os, requests as _req
-    url = os.environ.get('BACKEND_URL', '')
-    if url:
-        return url
-    for port in [8000, 8001, 8080, 5000]:
-        try:
-            r = _req.get(f'http://localhost:{port}/', timeout=2)
-            if r.status_code in [200, 404, 422]:
-                return f'http://localhost:{port}'
-        except Exception:
-            continue
     return 'http://localhost:8000'
 
 def get_audit_logs():
@@ -3027,6 +2953,33 @@ def update_forensic_stats(result):
         s['recent_flags'] = ([flag] + s['recent_flags'])[:20]
     _save_stats(s)
 
+_AUDIT_LOGS_FILE = os.path.join(os.path.dirname(__file__), 'data', 'audit_logs.json')
+
+def log_audit_action(action, status):
+    operator = st.session_state.get('user_name', 'Sriram VV')
+    now_str = datetime.now().strftime("%H:%M:%S")
+    
+    os.makedirs(os.path.dirname(_AUDIT_LOGS_FILE), exist_ok=True)
+    logs = []
+    if os.path.exists(_AUDIT_LOGS_FILE):
+        try:
+            with open(_AUDIT_LOGS_FILE, 'r') as f:
+                logs = json.load(f)
+        except:
+            pass
+            
+    logs.insert(0, {
+        "time": now_str,
+        "operator": operator,
+        "action": action,
+        "status": status
+    })
+    
+    logs = logs[:50]
+    
+    with open(_AUDIT_LOGS_FILE, 'w') as f:
+        json.dump(logs, f, indent=2)
+
 # --- EXTENDED MODULE PANELS ---
 def show_dashboard():
 
@@ -3042,10 +2995,10 @@ def show_dashboard():
         chart_title_color = "#00d4aa"
     else:
         header_bg = "linear-gradient(135deg, #ffffff, #f1f5f9)"
-        border_color = "#e2e8f0"; text_primary = "#0f172a"
-        text_secondary = "#64748b"; card_bg = "#ffffff"
+        border_color = "#e2e8f0"; text_primary = "#000000"
+        text_secondary = "#1f2937"; card_bg = "#ffffff"
         grid_color = "#e2e8f0"; card_shadow = "0 8px 24px rgba(148,163,184,0.15)"
-        chart_title_color = "#00b894"
+        chart_title_color = "#1f2937"
 
     total   = s['total_tickets']
     accepted  = s['accepted']
@@ -3061,17 +3014,17 @@ def show_dashboard():
     border-radius:16px;padding:24px;margin-bottom:24px;box-shadow:{card_shadow}'>
         <div style='display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px'>
             <div>
-                <h1 style='margin:0;font-size:26px;font-weight:800;color:#00d4aa'>
+                <h1 style='margin:0;font-size:26px;font-weight:800;color:#1f2937'>
                     Forensic Operations Dashboard
                 </h1>
-                <p style='color:{text_secondary};font-size:13px;margin:4px 0 0 0;font-weight:500'>
+                <p style='color:{text_secondary};font-size:15px;margin:4px 0 0 0;font-weight:600'>
                     Live metrics from your document validation sessions &nbsp;·&nbsp; Updated {now_str}
                 </p>
             </div>
             <div style='display:flex;gap:10px;align-items:center'>
-                <div style='background:rgba(0,212,170,0.1);border:1px solid rgba(0,212,170,0.2);
+                <div style='background:rgba(4,120,87,0.1);border:1px solid rgba(4,120,87,0.2);
                 padding:6px 14px;border-radius:20px'>
-                    <span style='color:#00d4aa;font-weight:700;font-size:11px'>🛰️ SYSTEM LIVE</span>
+                    <span style='color:#047857;font-weight:700;font-size:11px'>🛰️ SYSTEM LIVE</span>
                 </div>
             </div>
         </div>
@@ -3083,35 +3036,35 @@ def show_dashboard():
     <div style='display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px'>
         <div style='background:{card_bg};border:1px solid {border_color};border-radius:14px;
         padding:20px;box-shadow:{card_shadow}'>
-            <div style='color:{text_secondary};font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em'>Total Scanned</div>
+            <div style='color:{text_secondary};font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.05em'>Total Scanned</div>
             <div style='font-size:32px;font-weight:800;color:{text_primary};margin:8px 0'>
-                {total:,} <span style='font-size:14px;font-weight:500;color:{text_secondary}'>Tickets</span>
+                {total:,} <span style='font-size:16px;font-weight:700;color:{text_secondary}'>Tickets</span>
             </div>
-            <div style='color:#00d4aa;font-size:12px;font-weight:700'>⚡ Live counter</div>
+            <div style='color:#047857;font-size:14px;font-weight:800'>⚡ Live counter</div>
         </div>
         <div style='background:{card_bg};border:1px solid {border_color};border-radius:14px;
         padding:20px;box-shadow:{card_shadow}'>
-            <div style='color:{text_secondary};font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em'>Accepted Clean</div>
-            <div style='font-size:32px;font-weight:800;color:#00d4aa;margin:8px 0'>
-                {accepted:,} <span style='font-size:14px;font-weight:500;color:{text_secondary}'>Docs</span>
+            <div style='color:{text_secondary};font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.05em'>Accepted Clean</div>
+            <div style='font-size:32px;font-weight:800;color:#047857;margin:8px 0'>
+                {accepted:,} <span style='font-size:16px;font-weight:700;color:{text_secondary}'>Docs</span>
             </div>
-            <div style='color:#00d4aa;font-size:12px;font-weight:700'>▲ {integrity_pct}% integrity rate</div>
+            <div style='color:#047857;font-size:14px;font-weight:800'>▲ {integrity_pct}% integrity rate</div>
         </div>
         <div style='background:{card_bg};border:1px solid {border_color};border-radius:14px;
         padding:20px;box-shadow:{card_shadow}'>
-            <div style='color:{text_secondary};font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em'>Rejected / Flags</div>
-            <div style='font-size:32px;font-weight:800;color:#ff4757;margin:8px 0'>
-                {rejected:,} <span style='font-size:14px;font-weight:500;color:{text_secondary}'>Cases</span>
+            <div style='color:{text_secondary};font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.05em'>Rejected / Flags</div>
+            <div style='font-size:32px;font-weight:800;color:#b91c1c;margin:8px 0'>
+                {rejected:,} <span style='font-size:16px;font-weight:700;color:{text_secondary}'>Cases</span>
             </div>
-            <div style='color:#ff4757;font-size:12px;font-weight:700'>▼ {reject_pct}% of total</div>
+            <div style='color:#b91c1c;font-size:14px;font-weight:800'>▼ {reject_pct}% of total</div>
         </div>
         <div style='background:{card_bg};border:1px solid {border_color};border-radius:14px;
         padding:20px;box-shadow:{card_shadow}'>
-            <div style='color:{text_secondary};font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em'>Suspicious</div>
-            <div style='font-size:32px;font-weight:800;color:#ffa502;margin:8px 0'>
-                {suspicious:,} <span style='font-size:14px;font-weight:500;color:{text_secondary}'>Reviews</span>
+            <div style='color:{text_secondary};font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.05em'>Suspicious</div>
+            <div style='font-size:32px;font-weight:800;color:#b45309;margin:8px 0'>
+                {suspicious:,} <span style='font-size:16px;font-weight:700;color:{text_secondary}'>Reviews</span>
             </div>
-            <div style='color:#ffa502;font-size:12px;font-weight:700'>⚠ Manual review needed</div>
+            <div style='color:#b45309;font-size:14px;font-weight:800'>⚠ Manual review needed</div>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -3122,9 +3075,9 @@ def show_dashboard():
     with col1:
         st.markdown(f"""<div style='background:{card_bg};border:1px solid {border_color};
         border-radius:14px;padding:20px;box-shadow:{card_shadow}'>
-        <h3 style='margin:0 0 4px 0;font-size:16px;font-weight:700;color:{chart_title_color}'>
+        <h3 style='margin:0 0 4px 0;font-size:18px;font-weight:800;color:{chart_title_color}'>
         🍩 Verdict Distribution</h3>
-        <p style='color:{text_secondary};font-size:12px;margin:0 0 12px 0'>Real-time breakdown of all ticket verdicts</p>
+        <p style='color:{text_secondary};font-size:14px;font-weight:600;margin:0 0 12px 0'>Real-time breakdown of all ticket verdicts</p>
         """, unsafe_allow_html=True)
 
         if total > 0:
@@ -3132,7 +3085,7 @@ def show_dashboard():
                 labels=['Accepted', 'Rejected', 'Suspicious'],
                 values=[accepted, rejected, suspicious],
                 hole=0.62,
-                marker=dict(colors=['#00d4aa', '#ff4757', '#ffa502']),
+                marker=dict(colors=['#047857', '#b91c1c', '#b45309']),
                 textinfo='percent', hoverinfo='label+value+percent',
                 textfont=dict(size=11, color='#ffffff')
             )])
@@ -3152,15 +3105,15 @@ def show_dashboard():
     with col2:
         st.markdown(f"""<div style='background:{card_bg};border:1px solid {border_color};
         border-radius:14px;padding:20px;box-shadow:{card_shadow}'>
-        <h3 style='margin:0 0 4px 0;font-size:16px;font-weight:700;color:{chart_title_color}'>
+        <h3 style='margin:0 0 4px 0;font-size:18px;font-weight:800;color:{chart_title_color}'>
         📊 Document Types Processed</h3>
-        <p style='color:{text_secondary};font-size:12px;margin:0 0 12px 0'>Count of each document type found across all uploads</p>
+        <p style='color:{text_secondary};font-size:14px;font-weight:600;margin:0 0 12px 0'>Count of each document type found across all uploads</p>
         """, unsafe_allow_html=True)
 
         doc_counts = s.get('doc_type_counts', {})
         doc_labels = list(doc_counts.keys())
         doc_values = list(doc_counts.values())
-        doc_colors = ['#00d4aa', '#3b82f6', '#ffa502', '#ff4757', '#00b894']
+        doc_colors = ['#047857', '#1d4ed8', '#b45309', '#b91c1c', '#0f766e']
 
         fig_bar = go.Figure(data=[go.Bar(
             x=doc_labels, y=doc_values,
@@ -3180,9 +3133,9 @@ def show_dashboard():
     # --- Daily Processing Load ---
     st.markdown(f"""<div style='background:{card_bg};border:1px solid {border_color};
     border-radius:14px;padding:20px;box-shadow:{card_shadow};margin-top:20px'>
-    <h3 style='margin:0 0 4px 0;font-size:16px;font-weight:700;color:{chart_title_color}'>
+    <h3 style='margin:0 0 4px 0;font-size:18px;font-weight:800;color:{chart_title_color}'>
     📈 Daily Processing Load</h3>
-    <p style='color:{text_secondary};font-size:12px;margin:0 0 12px 0'>Tickets processed per day (last 7 days)</p>
+    <p style='color:{text_secondary};font-size:14px;font-weight:600;margin:0 0 12px 0'>Tickets processed per day (last 7 days)</p>
     """, unsafe_allow_html=True)
 
     daily = s.get('daily_counts', {})
@@ -3193,9 +3146,9 @@ def show_dashboard():
     fig_line = go.Figure()
     fig_line.add_trace(go.Scatter(
         x=day_labels, y=day_values, mode='lines+markers',
-        line=dict(color='#00d4aa', width=3, shape='spline'),
-        marker=dict(size=8, color='#00d4aa', line=dict(width=2, color=card_bg)),
-        fill='tozeroy', fillcolor='rgba(0,212,170,0.08)', name='Tickets'
+        line=dict(color='#047857', width=3, shape='spline'),
+        marker=dict(size=8, color='#047857', line=dict(width=2, color=card_bg)),
+        fill='tozeroy', fillcolor='rgba(4,120,87,0.08)', name='Tickets'
     ))
     fig_line.update_layout(
         plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
@@ -3386,30 +3339,36 @@ def show_audit_logs():
     </div>
     """, unsafe_allow_html=True)
     
-    logs = get_audit_logs()
+    local_logs = []
+    if os.path.exists(_AUDIT_LOGS_FILE):
+        try:
+            with open(_AUDIT_LOGS_FILE, 'r') as f:
+                local_logs = json.load(f)
+        except:
+            pass
+            
+    api_logs = get_audit_logs()
     
-    if logs:
-        df_logs = pd.DataFrame(logs)
-        st.dataframe(df_logs, use_container_width=True)
-    else:
-        # Fallback beautiful mock timeline
-        st.markdown("### Recent System Activity")
-        mock_timeline = [
-            {"time": "21:35:12", "operator": "Sriram VV", "action": "Completed Ticket cluster validation for #4092830193", "status": "✅ SUCCESS"},
-            {"time": "21:12:45", "operator": "Sriram VV", "action": "Chassis verification mismatch detected (WMI mismatch)", "status": "⚠ ANOMALY"},
-            {"time": "20:45:30", "operator": "Sriram VV", "action": "Logged in from secure endpoint VR-T8302", "status": "✅ ONLINE"},
-            {"time": "19:04:18", "operator": "System Maintenance", "action": "PaddleOCR warm start complete", "status": "✅ INITIALIZED"}
-        ]
-        
-        for item in mock_timeline:
+    all_logs = local_logs + api_logs
+    
+    st.markdown("### Recent System Activity")
+    
+    if all_logs:
+        for item in all_logs:
             st.markdown(f"""
             <div style='display:flex;justify-content:space-between;padding:12px;border-bottom:1.5px solid #1a2744'>
-                <span style='font-family:monospace;color:#8aa4c0'>{item['time']}</span>
-                <span style='font-weight:700'>{item['operator']}</span>
-                <span style='color:#e0e0e0'>{item['action']}</span>
-                <span style='font-weight:800'>{item['status']}</span>
+                <span style='font-family:monospace;color:#8aa4c0'>{item.get('time','')}</span>
+                <span style='font-weight:700'>{item.get('operator','')}</span>
+                <span style='color:#64748b'>{item.get('action','')}</span>
+                <span style='font-weight:800;color:#1f2937'>{item.get('status','')}</span>
             </div>
             """, unsafe_allow_html=True)
+    else:
+        st.markdown(f"""
+        <div style='text-align:center;padding:32px;color:#8aa4c0;font-size:14px;border:1px dashed #e0e8f0;border-radius:12px'>
+            No recent system activity recorded yet. Run a ticket validation to see real-time logs here!
+        </div>
+        """, unsafe_allow_html=True)
 
 # --- PART 14 — MAIN APP ROUTING ---
 if not st.session_state.get('logged_in'):
@@ -3426,7 +3385,7 @@ else:
         st.markdown("""
         <div style='margin-bottom:20px'>
         <h1 style='margin:0 0 4px 0'>Document Analysis</h1>
-        <p style='color:#546e7a;font-size:14px;margin:0'>
+        <p style='color:#546e7a;font-size:16px;font-weight:600;margin:0'>
         Automated validation of vehicle documents and ticket forensic analysis
         </p>
         </div>

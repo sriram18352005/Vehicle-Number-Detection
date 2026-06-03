@@ -1,0 +1,122 @@
+[
+  {
+    "time": "18:18:49",
+    "operator": "Sriram VV",
+    "action": "Completed Single Ticket validation for #4790434016",
+    "status": "\u2705 SUCCESS"
+  },
+  {
+    "time": "18:14:51",
+    "operator": "Sriram VV",
+    "action": "Completed Ticket validation in Batch for #4745789623",
+    "status": "\u2705 SUCCESS"
+  },
+  {
+    "time": "18:14:51",
+    "operator": "Sriram VV",
+    "action": "Completed Ticket validation in Batch for #4578102963",
+    "status": "\u274c REJECTED"
+  },
+  {
+    "time": "18:14:51",
+    "operator": "Sriram VV",
+    "action": "Completed Ticket validation in Batch for #4569871235",
+    "status": "\u2705 SUCCESS"
+  },
+  {
+    "time": "18:14:51",
+    "operator": "Sriram VV",
+    "action": "Completed Ticket validation in Batch for #4561237895",
+    "status": "\u2705 SUCCESS"
+  },
+  {
+    "time": "18:10:23",
+    "operator": "Sriram VV",
+    "action": "Completed Single Ticket validation for #4578102963",
+    "status": "\u274c REJECTED"
+  },
+  {
+    "time": "18:07:52",
+    "operator": "Sriram VV",
+    "action": "Completed Single Ticket validation for #4561237895",
+    "status": "\u2705 SUCCESS"
+  },
+  {
+    "time": "18:06:05",
+    "operator": "Sriram VV",
+    "action": "Completed Single Ticket validation for #4569871235",
+    "status": "\u26a0 ANOMALY"
+  },
+  {
+    "time": "18:01:59",
+    "operator": "Sriram VV",
+    "action": "Completed Single Ticket validation for #4745789623",
+    "status": "\u2705 SUCCESS"
+  },
+  {
+    "time": "17:43:42",
+    "operator": "Sriram VV",
+    "action": "Completed Single Ticket validation for #4994493393",
+    "status": "\u26a0 ANOMALY"
+  },
+  {
+    "time": "17:41:11",
+    "operator": "Sriram VV",
+    "action": "Completed Single Ticket validation for #4994493393",
+    "status": "\u26a0 ANOMALY"
+  },
+  {
+    "time": "17:28:20",
+    "operator": "Sriram VV",
+    "action": "Completed Ticket validation in Batch for #4944366966",
+    "status": "\u2705 SUCCESS"
+  },
+  {
+    "time": "17:28:20",
+    "operator": "Sriram VV",
+    "action": "Completed Ticket validation in Batch for #4790434016",
+    "status": "\u2705 SUCCESS"
+  },
+  {
+    "time": "17:28:20",
+    "operator": "Sriram VV",
+    "action": "Completed Ticket validation in Batch for #4745789623",
+    "status": "\u2705 SUCCESS"
+  },
+  {
+    "time": "17:28:20",
+    "operator": "Sriram VV",
+    "action": "Completed Ticket validation in Batch for #4569871235",
+    "status": "\u26a0 ANOMALY"
+  },
+  {
+    "time": "17:25:29",
+    "operator": "Sriram VV",
+    "action": "Completed Ticket validation in Batch for #4944366966",
+    "status": "\u2705 SUCCESS"
+  },
+  {
+    "time": "17:25:29",
+    "operator": "Sriram VV",
+    "action": "Completed Ticket validation in Batch for #4790434016",
+    "status": "\u2705 SUCCESS"
+  },
+  {
+    "time": "17:25:29",
+    "operator": "Sriram VV",
+    "action": "Completed Ticket validation in Batch for #4745789623",
+    "status": "\u2705 SUCCESS"
+  },
+  {
+    "time": "17:25:29",
+    "operator": "Sriram VV",
+    "action": "Completed Ticket validation in Batch for #4569871235",
+    "status": "\u26a0 ANOMALY"
+  },
+  {
+    "time": "16:49:49",
+    "operator": "Sriram VV",
+    "action": "Completed Single Ticket validation for #4790434016",
+    "status": "\u2705 SUCCESS"
+  }
+]
